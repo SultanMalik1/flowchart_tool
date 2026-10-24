@@ -1,0 +1,27 @@
+# FlowchartAI
+
+FlowchartAI creates editable diagrams from text or one image, supports natural-language changes to native draw.io files, and saves owned documents for later editing. Hosted service: https://flowchartai.org.
+
+## Product
+- [AI flowchart editor](https://flowchartai.org/): Start a diagram from a description or an image.
+- [Pricing](https://flowchartai.org/pricing): Current Credits subscriptions and one-time packs. Eligible historical Creem plans retain their allowance. Manual edits, save and download have no AI charge.
+- [Blog](https://flowchartai.org/blog): Flowchart symbols, process diagrams and practical examples.
+
+## Developers
+- [Flowchart API](https://flowchartai.org/flowchart-api): Versioned REST API for native AI generation/editing, saved diagrams, task receipts, version history and native exports.
+- [MCP server](https://flowchartai.org/mcp): Remote Streamable HTTP MCP with OAuth/PKCE or scoped API keys in clients supporting custom headers.
+- [Quickstart and reference](https://flowchartai.org/developers/docs): Authentication, permissions, request examples, task recovery, usage and client setup.
+- [OpenAPI JSON](https://flowchartai.org/api/v1/openapi.json): REST API v1 schema.
+- [Developer dashboard](https://flowchartai.org/developers): Sign in to create, rotate and revoke keys, review OAuth connections and set daily budgets.
+
+REST base: https://flowchartai.org/api/v1
+MCP endpoint: https://flowchartai.org/api/mcp
+Protected resource metadata: https://flowchartai.org/.well-known/oauth-protected-resource/api/mcp
+Authorization server metadata: https://flowchartai.org/.well-known/oauth-authorization-server
+
+API writes require a stable Idempotency-Key. AI operations require max_credits and share the existing account wallet or eligible legacy request allowance. Model usage includes every call; settlement is capped at the accepted reservation. Do not repeat an uncertain submission with a new key before checking its receipt. API/MCP exports: draw.io XML and original JSON. Website native exports: draw.io, SVG and PNG. Keys and OAuth tokens do not provide website login sessions.
+
+## Policies
+- [Privacy](https://flowchartai.org/privacy)
+- [Terms](https://flowchartai.org/terms)
+- [Contact](https://flowchartai.org/contact)

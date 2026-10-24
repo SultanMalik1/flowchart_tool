@@ -1,0 +1,2060 @@
+'use client';
+
+import { EVENTS } from '@/analytics/core-goals';
+import {
+  hasLiveSceneContent,
+  hasNativeExportContent,
+} from '@/analytics/export-content';
+import { trackFlowchartEvent } from '@/analytics/plausible-browser';
+import MarkdownRenderer from '@/components/shared/markdown-renderer';
+import { Button } from '@/components/ui/button';
+import { Card } from '@/components/ui/card';
+import { ScrollArea } from '@/components/ui/scroll-area';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
+import { Textarea } from '@/components/ui/textarea';
+import { toast } from '@/hooks/use-toast';
+import {
+  AI_ASSISTANT_MODES,
+  type AiAssistantMode,
+  DEFAULT_AI_ASSISTANT_MODE,
+} from '@/lib/ai-modes';
+import { generateAICanvasDescription } from '@/lib/canvas-analyzer';
+import {
+  type CanvasCommand,
+  type FlowchartAiMetadata,
+  canvasCommandSchema,
+} from '@/lib/diagram/contracts';
+import { deriveFlowchartAiMetadataFromElements } from '@/lib/diagram/metadata';
+import { resolveDiagramTarget } from '@/lib/diagram/target-resolver';
+import type {
+  DrawioCommand,
+  NativeEditorController,
+} from '@/lib/drawio/contracts';
+import { readNativeCells } from '@/lib/drawio/native-document';
+import {
+  buildRetryConversation,
+  getCanvasChatStorageKey,
+  parseCanvasChatSession,
+  sanitizeCanvasChatMessagesForStorage,
+  sanitizeSerializedCanvasChatSessionForStorage,
+  serializeCanvasChatSession,
+} from '@/lib/mastra/chat-session-storage';
+import {
+  type FlowchartDiagnosticCode,
+  type FlowchartDiagnosticStage,
+  classifyFlowchartError,
+  getSafeErrorName,
+  logFlowchartDiagnostic,
+  providerLimitMessage,
+} from '@/lib/mastra/flowchart-diagnostics';
+import { createSseEventDecoder } from '@/lib/mastra/sse-client';
+import {
+  type AssistantPhase,
+  type DiagramTaskStatus,
+  taskStatusLabel,
+} from '@/lib/mastra/task-status';
+import {
+  extractExistingMermaidCode,
+  hasExistingAiFlowchart,
+  preloadMermaidConverter,
+} from '@/lib/mermaid-converter';
+import type { ExcalidrawImperativeAPI } from '@excalidraw/excalidraw/types';
+import {
+  AlertCircle,
+  ArrowUp,
+  Loader2,
+  Paperclip,
+  Plus,
+  X,
+} from 'lucide-react';
+import {
+  type CSSProperties,
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+} from 'react';
+
+interface MessageContent {
+  type: 'text' | 'image_url';
+  text?: string;
+  image_url?: {
+    url: string;
+  };
+}
+
+interface Message {
+  id: string;
+  content: string | MessageContent[];
+  role: 'user' | 'assistant';
+  timestamp: Date;
+  isFlowchart?: boolean;
+  mermaidCode?: string;
+  error?: string;
+  images?: {
+    file: File;
+    thumbnail: string;
+    base64: string;
+  }[];
+}
+
+interface AiChatSidebarProps {
+  className?: string;
+  isOpen: boolean;
+  onToggle: () => void;
+  excalidrawAPI?: ExcalidrawImperativeAPI | null;
+  nativeEditor?: NativeEditorController | null;
+  isAPIReady?: boolean;
+  width?: number;
+  flowchartId?: string;
+  autoInput?: string;
+  shouldAutoGenerate?: boolean;
+  onAutoGenerateComplete?: () => void;
+  initialMode?: AiAssistantMode;
+  initialImage?: {
+    base64: string;
+    thumbnail?: string;
+    filename?: string;
+  } | null;
+  flowchartAiMetadata: FlowchartAiMetadata;
+  onFlowchartAiMetadataChange: (metadata: FlowchartAiMetadata) => void;
+  onReady?: () => void;
+  embedded?: boolean;
+  onTaskStatusChange?: (status: DiagramTaskStatus) => void;
+  onDiagramTitle?: (
+    title: string,
+    operation: DrawioCommand['operation']
+  ) => void;
+  onFocusChanges?: () => void;
+  onPersistDiagram?: () => Promise<string>;
+}
+
+function getUserFacingErrorMessage(
+  error: unknown,
+  fallbackMessage: string
+): string {
+  const typedError = error as (Error & { userFacingMessage?: string }) | null;
+
+  if (
+    error instanceof Error &&
+    typeof typedError?.userFacingMessage === 'string'
+  ) {
+    return typedError.userFacingMessage;
+  }
+
+  return fallbackMessage;
+}
+
+const ASSISTANT_THINKING_STATUS = 'Thinking...';
+const FLOWCHART_EDITING_STATUS = 'Editing...';
+const FLOWCHART_RENDERING_STATUS = 'Rendering...';
+
+type AssistantResponsePhase = AssistantPhase;
+
+function markFlowchartPerformance(name: string): void {
+  if (typeof performance !== 'undefined') {
+    performance.mark(`flowchartai:${name}`);
+  }
+}
+
+function waitForNextPaint(): Promise<void> {
+  if (typeof requestAnimationFrame !== 'function') {
+    return Promise.resolve();
+  }
+
+  return new Promise((resolve) => {
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => resolve());
+    });
+  });
+}
+
+const AiChatSidebar: React.FC<AiChatSidebarProps> = ({
+  className,
+  isOpen,
+  onToggle,
+  excalidrawAPI,
+  nativeEditor,
+  isAPIReady = false,
+  width = 400,
+  flowchartId,
+  autoInput,
+  shouldAutoGenerate,
+  onAutoGenerateComplete,
+  initialMode,
+  initialImage,
+  flowchartAiMetadata,
+  onFlowchartAiMetadataChange,
+  onReady,
+  embedded = false,
+  onTaskStatusChange,
+  onDiagramTitle,
+  onFocusChanges,
+  onPersistDiagram,
+}) => {
+  const [taskStartedAt, setTaskStartedAt] = useState<number | null>(null);
+  const [elapsedSeconds, setElapsedSeconds] = useState(0);
+  const [taskOutcome, setTaskOutcome] =
+    useState<DiagramTaskStatus['outcome']>('ready');
+  const [lastChange, setLastChange] = useState('');
+  const [messages, setMessages] = useState<Message[]>([]);
+  const [input, setInput] = useState('');
+  const [isLoading, setIsLoading] = useState(false);
+  const [isStreamingResponse, setIsStreamingResponse] = useState(false);
+  const [sendStatus, setSendStatus] = useState<string | null>(null);
+  const [assistantResponsePhase, setAssistantResponsePhase] =
+    useState<AssistantResponsePhase>('idle');
+  const [selectedImages, setSelectedImages] = useState<File[]>([]);
+  const [imagePreviewUrls, setImagePreviewUrls] = useState<string[]>([]);
+  const [aiMode, setAiMode] = useState<AiAssistantMode>(
+    initialMode ?? DEFAULT_AI_ASSISTANT_MODE
+  );
+  const [isChatHydrated, setIsChatHydrated] = useState(false);
+  const nativeEditorRef = useRef(nativeEditor);
+  nativeEditorRef.current = nativeEditor;
+  const hasAutoSentRef = useRef(false);
+  const scrollAreaRef = useRef<HTMLDivElement>(null);
+  const abortControllerRef = useRef<AbortController | null>(null);
+  const requestCommittedRef = useRef(false);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const streamingMessageIdRef = useRef<string | null>(null);
+  const hasReportedReadyRef = useRef(false);
+  const chatStorageKeyRef = useRef<string | null>(null);
+  const latestChatStateRef = useRef({ messages, input, aiMode });
+
+  latestChatStateRef.current = { messages, input, aiMode };
+
+  const activeSendStatus = sendStatus;
+  const taskStatus: DiagramTaskStatus = {
+    active: isLoading,
+    phase: assistantResponsePhase,
+    startedAt: taskStartedAt,
+    outcome: taskOutcome,
+  };
+  const taskLabel = taskStatusLabel(taskStatus);
+  useEffect(() => {
+    if (!isLoading) return;
+    const startedAt = Date.now();
+    setTaskStartedAt(startedAt);
+    setElapsedSeconds(0);
+    const timer = window.setInterval(
+      () => setElapsedSeconds(Math.floor((Date.now() - startedAt) / 1000)),
+      1000
+    );
+    return () => window.clearInterval(timer);
+  }, [isLoading]);
+  useEffect(() => {
+    onTaskStatusChange?.({
+      active: isLoading,
+      phase: assistantResponsePhase,
+      startedAt: taskStartedAt,
+      outcome: taskOutcome,
+    });
+  }, [
+    isLoading,
+    assistantResponsePhase,
+    taskStartedAt,
+    taskOutcome,
+    onTaskStatusChange,
+  ]);
+
+  useEffect(() => {
+    if (!hasReportedReadyRef.current) {
+      hasReportedReadyRef.current = true;
+      onReady?.();
+    }
+  }, [onReady]);
+
+  const scrollToBottom = () => {
+    if (scrollAreaRef.current) {
+      const scrollContainer = scrollAreaRef.current.querySelector(
+        '[data-radix-scroll-area-viewport]'
+      );
+      if (scrollContainer) {
+        scrollContainer.scrollTo({
+          top: scrollContainer.scrollHeight,
+          behavior: 'smooth',
+        });
+      }
+    }
+  };
+
+  // Auto-resize textarea based on content with proper line wrapping
+  const adjustTextareaHeight = () => {
+    if (textareaRef.current) {
+      const textarea = textareaRef.current;
+      // Reset height to auto to get the correct scrollHeight
+      textarea.style.height = 'auto';
+      // Calculate new height based on content
+      const minHeight = embedded ? 72 : 80;
+      const maxHeight = 200;
+      const scrollHeight = textarea.scrollHeight;
+      const newHeight = Math.min(Math.max(scrollHeight, minHeight), maxHeight);
+      textarea.style.height = `${newHeight}px`;
+    }
+  };
+
+  useEffect(() => {
+    scrollToBottom();
+  }, [messages, isLoading, isOpen]);
+
+  // Initialize textarea height on mount and when input changes
+  useEffect(() => {
+    adjustTextareaHeight();
+  }, [input]);
+
+  useEffect(() => {
+    if (initialMode) {
+      setAiMode(initialMode);
+    }
+  }, [initialMode]);
+
+  const chatStorageKey = getCanvasChatStorageKey(flowchartId);
+
+  useEffect(() => {
+    setIsChatHydrated(false);
+
+    const previousKey = chatStorageKeyRef.current;
+    const unsavedKey = getCanvasChatStorageKey();
+    let serialized = localStorage.getItem(chatStorageKey);
+
+    if (!serialized && flowchartId && previousKey === unsavedKey) {
+      serialized = sanitizeSerializedCanvasChatSessionForStorage(
+        localStorage.getItem(unsavedKey)
+      );
+      if (!serialized) {
+        const latest = latestChatStateRef.current;
+        serialized = serializeCanvasChatSession({
+          version: 1,
+          draft: latest.input,
+          mode: latest.aiMode,
+          messages: sanitizeCanvasChatMessagesForStorage(
+            latest.messages.map(({ images: _images, ...message }) => message)
+          ),
+        });
+      }
+
+      try {
+        localStorage.setItem(chatStorageKey, serialized);
+        localStorage.removeItem(unsavedKey);
+      } catch {
+        // Keep the active in-memory session when storage is unavailable.
+      }
+    }
+
+    const storedSession = parseCanvasChatSession(serialized);
+    if (storedSession) {
+      setMessages(storedSession.messages);
+      setInput(storedSession.draft);
+      setAiMode(storedSession.mode);
+    } else if (previousKey && previousKey !== chatStorageKey) {
+      setMessages([]);
+      setInput('');
+      setAiMode(initialMode ?? DEFAULT_AI_ASSISTANT_MODE);
+    }
+
+    chatStorageKeyRef.current = chatStorageKey;
+    setIsChatHydrated(true);
+  }, [chatStorageKey, flowchartId, initialMode]);
+
+  useEffect(() => {
+    if (!isChatHydrated) return;
+
+    try {
+      localStorage.setItem(
+        chatStorageKey,
+        serializeCanvasChatSession({
+          version: 1,
+          draft: input,
+          mode: aiMode,
+          messages: sanitizeCanvasChatMessagesForStorage(
+            messages.map(({ images: _images, ...message }) => message)
+          ),
+        })
+      );
+    } catch {
+      // Chat remains available for the current session if storage is full.
+    }
+  }, [aiMode, chatStorageKey, input, isChatHydrated, messages]);
+
+  useEffect(() => {
+    if (initialImage) {
+      canvasContextRef.current.homepageImage = initialImage;
+    } else {
+      canvasContextRef.current.homepageImage = undefined;
+    }
+  }, [initialImage]);
+
+  useEffect(() => {
+    if (!isAPIReady) return;
+    const idleWindow = window as typeof window & {
+      requestIdleCallback?: (callback: () => void) => number;
+      cancelIdleCallback?: (id: number) => void;
+    };
+    const preload = () => {
+      if (!nativeEditor) void preloadMermaidConverter().catch(() => undefined);
+    };
+    if (idleWindow.requestIdleCallback) {
+      const idleId = idleWindow.requestIdleCallback(preload);
+      return () => idleWindow.cancelIdleCallback?.(idleId);
+    }
+    const timeoutId = window.setTimeout(preload, 1500);
+    return () => window.clearTimeout(timeoutId);
+  }, [isAPIReady, nativeEditor]);
+
+  // Auto-adjust textarea height when input changes
+  useEffect(() => {
+    adjustTextareaHeight();
+  }, [input]);
+
+  // Auto-send function that bypasses input state
+  const handleAutoSendMessage = async (
+    messageText: string
+  ): Promise<boolean> => {
+    const homepageImage = canvasContextRef.current.homepageImage;
+    const trimmed = messageText.trim();
+
+    if ((!trimmed && !homepageImage) || isLoading) {
+      return false;
+    }
+
+    setIsLoading(true);
+    setTaskOutcome('ready');
+    requestCommittedRef.current = false;
+    setLastChange('');
+    abortControllerRef.current = new AbortController();
+    setSendStatus(null);
+
+    // Create user message with the provided text
+    const mimeMatch = homepageImage?.base64?.match(/^data:(.*?);/);
+    const mimeType = mimeMatch?.[1] || 'image/png';
+    const filename =
+      homepageImage?.filename ||
+      `uploaded-image.${mimeType.split('/')[1] || 'png'}`;
+
+    let messageContent: string | MessageContent[] = trimmed;
+    let messageImages: { file: File; thumbnail: string; base64: string }[] = [];
+
+    if (homepageImage && aiMode === 'image_to_flowchart') {
+      messageImages = [
+        {
+          file: new File([], filename, { type: mimeType }),
+          thumbnail: homepageImage.thumbnail || homepageImage.base64,
+          base64: homepageImage.base64,
+        },
+      ];
+      messageContent = [
+        ...(trimmed
+          ? [
+              {
+                type: 'text' as const,
+                text: trimmed,
+              },
+            ]
+          : []),
+        {
+          type: 'image_url' as const,
+          image_url: {
+            url: homepageImage.base64,
+          },
+        },
+      ];
+    }
+
+    const userMessage: Message = {
+      id: Date.now().toString(),
+      content: messageContent,
+      role: 'user',
+      timestamp: new Date(),
+      images: messageImages.length > 0 ? messageImages : undefined,
+    };
+
+    setMessages((prev) => [...prev, userMessage]);
+    setInput('');
+    if (homepageImage && aiMode === 'image_to_flowchart') {
+      canvasContextRef.current.homepageImage = undefined;
+      localStorage.removeItem('flowchart_auto_image');
+    }
+    setIsStreamingResponse(true);
+    setAssistantResponsePhase('thinking');
+
+    try {
+      await waitForNextPaint();
+
+      if (abortControllerRef.current?.signal.aborted)
+        throw new DOMException('Request aborted', 'AbortError');
+
+      await processAIConversation([
+        // Send complete conversation history for context
+        ...messages.map((msg) => ({
+          role: msg.role,
+          content: typeof msg.content === 'string' ? msg.content : msg.content,
+        })),
+        {
+          role: 'user',
+          content: userMessage.content,
+        },
+      ]);
+
+      return true;
+    } catch (error) {
+      console.error('Error sending auto message:', error);
+      if (error instanceof Error && error.name === 'AbortError') {
+        return false;
+      }
+
+      setTaskOutcome('failed');
+      const userFacingMessage = getUserFacingErrorMessage(
+        error,
+        'Sorry, I encountered an error while processing your request. Please try again.'
+      );
+
+      const errorMessage: Message = {
+        id: (Date.now() + 2).toString(),
+        content: userFacingMessage,
+        role: 'assistant',
+        timestamp: new Date(),
+        error: error instanceof Error ? error.message : 'Unknown error',
+      };
+
+      setMessages((prev) => [...prev, errorMessage]);
+
+      toast({
+        title: 'Error',
+        description: userFacingMessage,
+        variant: 'destructive',
+      });
+      return false;
+    } finally {
+      setIsLoading(false);
+      setSendStatus(null);
+      setAssistantResponsePhase('idle');
+      abortControllerRef.current = null;
+      setIsStreamingResponse(false);
+      streamingMessageIdRef.current = null;
+    }
+  };
+
+  // Handle auto-generation from homepage - ONLY ONCE
+  useEffect(() => {
+    const hasHomepageImage = !!canvasContextRef.current.homepageImage;
+    const normalizedAutoInput = autoInput ?? '';
+
+    if (
+      shouldAutoGenerate &&
+      (normalizedAutoInput || hasHomepageImage) &&
+      isOpen &&
+      isAPIReady &&
+      !hasAutoSentRef.current
+    ) {
+      hasAutoSentRef.current = true; // Immediately mark as sent to prevent any duplicates
+      setInput(normalizedAutoInput);
+
+      console.log(
+        '🚀 Auto-sending message now that API is ready:',
+        normalizedAutoInput.substring(0, 50) + '...',
+        {
+          shouldAutoGenerate,
+          hasAutoInput: Boolean(normalizedAutoInput),
+          hasHomepageImage,
+          isOpen,
+          isAPIReady,
+          hasAutoSent: hasAutoSentRef.current,
+        }
+      );
+
+      // Small delay to ensure component is fully loaded
+      setTimeout(async () => {
+        try {
+          const sent = await handleAutoSendMessage(normalizedAutoInput);
+
+          if (!sent) return;
+
+          localStorage.removeItem('flowchart_auto_generate');
+          localStorage.removeItem('flowchart_auto_input');
+          localStorage.removeItem('flowchart_auto_mode');
+          console.log('✅ Auto-generation completed, localStorage cleared');
+
+          onAutoGenerateComplete?.();
+        } catch (error) {
+          console.error('❌ Auto-generation failed:', error);
+        }
+      }, 500);
+    }
+  }, [shouldAutoGenerate, autoInput, isOpen, isAPIReady]);
+
+  useEffect(() => {
+    const hasHomepageImage = !!canvasContextRef.current.homepageImage;
+    const normalizedAutoInput = autoInput ?? '';
+
+    if (
+      shouldAutoGenerate &&
+      (normalizedAutoInput || hasHomepageImage) &&
+      isOpen &&
+      !hasAutoSentRef.current
+    ) {
+      const timeoutId = setTimeout(() => {
+        if (!hasAutoSentRef.current) {
+          console.log(
+            '⏰ API initialization timeout, attempting force send...'
+          );
+          if (isAPIReady) {
+            hasAutoSentRef.current = true;
+            setInput(normalizedAutoInput);
+            setTimeout(async () => {
+              try {
+                const sent = await handleAutoSendMessage(normalizedAutoInput);
+                if (!sent) return;
+                localStorage.removeItem('flowchart_auto_generate');
+                localStorage.removeItem('flowchart_auto_input');
+                localStorage.removeItem('flowchart_auto_mode');
+                localStorage.removeItem('flowchart_auto_image');
+                console.log('✅ Force auto-generation completed');
+                onAutoGenerateComplete?.();
+              } catch (error) {
+                console.error('❌ Force auto-generation failed:', error);
+              }
+            }, 500);
+          } else {
+            console.warn(
+              '⚠️ ExcalidrawAPI still not ready after 5s, user will need to manually send'
+            );
+          }
+        }
+      }, 5000);
+
+      return () => clearTimeout(timeoutId);
+    }
+  }, [shouldAutoGenerate, autoInput, isOpen, isAPIReady]);
+
+  // Clean up abort controller on unmount
+  useEffect(() => {
+    return () => {
+      if (abortControllerRef.current) {
+        abortControllerRef.current.abort();
+      }
+      // Clean up image preview URLs
+      imagePreviewUrls.forEach((url) => URL.revokeObjectURL(url));
+    };
+  }, []);
+
+  // Handle image selection
+  const handleImageSelect = async (files: FileList | null) => {
+    if (!files) return;
+
+    const { encodeImageToBase64, isValidImageFile } = await import(
+      '@/lib/image-utils'
+    );
+
+    const file = files[0];
+    if (!file || !isValidImageFile(file)) {
+      toast({
+        title: 'Invalid file',
+        description: `${file?.name || 'This file'} is not a valid image file or is too large (max 5MB)`,
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    imagePreviewUrls.forEach((url) => URL.revokeObjectURL(url));
+    setSelectedImages([file]);
+    setImagePreviewUrls([URL.createObjectURL(file)]);
+  };
+
+  // Remove selected image
+  const removeImage = (index: number) => {
+    setSelectedImages((prev) => prev.filter((_, i) => i !== index));
+    setImagePreviewUrls((prev) => {
+      const urlToRevoke = prev[index];
+      URL.revokeObjectURL(urlToRevoke);
+      return prev.filter((_, i) => i !== index);
+    });
+  };
+
+  // Handle camera button click
+  const handleCameraClick = () => {
+    if (fileInputRef.current) {
+      fileInputRef.current.click();
+    }
+  };
+
+  interface CanvasNodeSnapshot {
+    id: string;
+    type: string;
+    text?: string;
+    position: { x: number; y: number };
+    size: { width: number; height: number };
+    aiGenerated?: boolean;
+    diagramId?: string;
+    semanticId?: string;
+    entityType?: string;
+  }
+
+  interface CanvasEdgeSnapshot {
+    id: string;
+    type: string;
+    fromElement?: string | null;
+    toElement?: string | null;
+    label?: string;
+    aiGenerated?: boolean;
+    diagramId?: string;
+    semanticId?: string;
+    entityType?: string;
+  }
+
+  const getCanvasState = () => {
+    if (nativeEditor) {
+      const document = nativeEditor.getDocument();
+      return {
+        editorKind: 'drawio',
+        revision: document.revision,
+        objects: readNativeCells(document),
+        selectedElementIds: nativeEditor.getSelection(),
+      };
+    }
+    if (!excalidrawAPI) return null;
+
+    try {
+      const elements = excalidrawAPI.getSceneElements();
+      const appState = excalidrawAPI.getAppState();
+      const files = excalidrawAPI.getFiles();
+
+      const nodes: CanvasNodeSnapshot[] = [];
+      const edges: CanvasEdgeSnapshot[] = [];
+
+      elements.forEach((element) => {
+        const baseNode = {
+          id: element.id,
+          type: element.type,
+          position: { x: element.x, y: element.y },
+          size: { width: element.width ?? 0, height: element.height ?? 0 },
+          aiGenerated: Boolean(element.customData?.aiGenerated),
+          diagramId:
+            typeof element.customData?.diagramId === 'string'
+              ? element.customData.diagramId
+              : undefined,
+          semanticId:
+            typeof element.customData?.semanticId === 'string'
+              ? element.customData.semanticId
+              : undefined,
+          entityType:
+            typeof element.customData?.entityType === 'string'
+              ? element.customData.entityType
+              : undefined,
+        };
+
+        if (element.type === 'arrow') {
+          edges.push({
+            id: element.id,
+            type: element.type,
+            fromElement:
+              'startBinding' in element
+                ? element.startBinding?.elementId
+                : undefined,
+            toElement:
+              'endBinding' in element
+                ? element.endBinding?.elementId
+                : undefined,
+            label: 'text' in element ? (element as any).text : undefined,
+            aiGenerated: Boolean(element.customData?.aiGenerated),
+            diagramId: baseNode.diagramId,
+            semanticId: baseNode.semanticId,
+            entityType: baseNode.entityType,
+          });
+        } else {
+          nodes.push({
+            ...baseNode,
+            text: 'text' in element ? (element as any).text : undefined,
+          });
+        }
+      });
+
+      const canvasState = {
+        nodes,
+        edges,
+        appState: {
+          viewBackgroundColor: appState.viewBackgroundColor,
+          scrollX: appState.scrollX,
+          scrollY: appState.scrollY,
+          zoom: appState.zoom,
+          theme: appState.theme,
+          gridSize: appState.gridSize,
+          selectedElementIds: appState.selectedElementIds,
+        },
+
+        filesCount: Object.keys(files).length,
+
+        metadata: {
+          elementsCount: elements.length,
+          hasImages: Object.keys(files).length > 0,
+          canvasSize: {
+            width: appState.width,
+            height: appState.height,
+          },
+        },
+
+        existingMermaid: extractExistingMermaidCode([...elements]),
+        hasAiFlowchart: hasExistingAiFlowchart([...elements]),
+        description: generateAICanvasDescription([...elements]),
+      };
+
+      return canvasState;
+    } catch (error) {
+      console.warn('Failed to get canvas state:', error);
+      return null;
+    }
+  };
+
+  const canvasContextRef = useRef<{
+    lastMermaid?: {
+      code: string;
+      generatedAt: number;
+    };
+    homepageImage?: {
+      base64: string;
+      thumbnail?: string;
+      filename?: string;
+    };
+  }>({});
+
+  const applyCanvasCommand = async (command: CanvasCommand) => {
+    if (command.kind === 'drawio-command') {
+      const editor = nativeEditorRef.current;
+      if (!editor) throw new Error('Native diagram editor is not ready');
+      if (abortControllerRef.current?.signal.aborted)
+        throw new DOMException('Request aborted', 'AbortError');
+      setAssistantResponsePhase('rendering');
+      try {
+        await editor.applyCommand(command);
+      } catch (error) {
+        if (error instanceof Error)
+          (error as Error & { userFacingMessage?: string }).userFacingMessage =
+            /revision|target|page changed/i.test(error.message)
+              ? 'The diagram changed while I was working. Retry with the current diagram.'
+              : 'The change could not be applied. Your diagram was kept; retry or select the part to edit.';
+        throw error;
+      }
+      markFlowchartPerformance('canvasCommitted');
+      requestCommittedRef.current = true;
+
+      setAssistantResponsePhase('complete');
+      setTaskOutcome('done');
+      setLastChange(command.description);
+      if (command.title) onDiagramTitle?.(command.title, command.operation);
+      if (!embedded)
+        toast({ title: 'Diagram updated', description: command.description });
+      return;
+    }
+    if (!excalidrawAPI) {
+      throw new Error('Canvas is not ready');
+    }
+
+    if (abortControllerRef.current?.signal.aborted) {
+      throw new DOMException('Request aborted', 'AbortError');
+    }
+
+    setAssistantResponsePhase('rendering');
+    markFlowchartPerformance('renderStarted');
+    await waitForNextPaint();
+    const currentElements = [...excalidrawAPI.getSceneElements()];
+    const currentMetadata = deriveFlowchartAiMetadataFromElements(
+      currentElements,
+      flowchartAiMetadata
+    );
+    const currentTargetResolution = resolveDiagramTarget({
+      elements: currentElements,
+      selectedElementIds: excalidrawAPI.getAppState().selectedElementIds,
+      metadata: currentMetadata,
+    });
+    const [{ prepareCanvasCommand }, { CaptureUpdateAction }] =
+      await Promise.all([
+        import('@/lib/diagram/canvas-command-executor'),
+        import('@excalidraw/excalidraw'),
+      ]);
+    const prepared = await prepareCanvasCommand({
+      command,
+      currentElements,
+      metadata: currentMetadata,
+      targetResolution: currentTargetResolution,
+    });
+
+    if (abortControllerRef.current?.signal.aborted) {
+      throw new DOMException('Request aborted', 'AbortError');
+    }
+
+    if (Object.keys(prepared.files).length > 0) {
+      excalidrawAPI.addFiles(Object.values(prepared.files) as any);
+    }
+    excalidrawAPI.updateScene({
+      elements: prepared.nextElements as any,
+      captureUpdate: CaptureUpdateAction.IMMEDIATELY,
+    });
+    onFlowchartAiMetadataChange(prepared.nextMetadata);
+    markFlowchartPerformance('canvasCommitted');
+
+    if (prepared.operation !== 'patch' && prepared.focusElements.length > 0) {
+      excalidrawAPI.scrollToContent(prepared.focusElements as any, {
+        fitToContent: true,
+        animate: true,
+      });
+    }
+
+    canvasContextRef.current.lastMermaid = {
+      code: prepared.sourceMermaid,
+      generatedAt: Date.now(),
+    };
+
+    toast({
+      title:
+        prepared.operation === 'create'
+          ? 'Flowchart added!'
+          : 'Flowchart updated!',
+      description:
+        prepared.operation === 'patch'
+          ? 'The selected part was updated; other canvas content was preserved.'
+          : 'The target diagram was rendered on the canvas.',
+    });
+  };
+
+  const handleRetry = async (failedAssistantId: string) => {
+    if (isLoading) return;
+
+    const retryMessages = buildRetryConversation(messages, failedAssistantId);
+    if (!retryMessages) return;
+
+    setIsLoading(true);
+    setTaskOutcome('ready');
+    requestCommittedRef.current = false;
+    setLastChange('');
+    abortControllerRef.current = new AbortController();
+    setSendStatus(null);
+    setIsStreamingResponse(true);
+    setAssistantResponsePhase('thinking');
+
+    try {
+      await waitForNextPaint();
+
+      setMessages(retryMessages);
+      if (abortControllerRef.current?.signal.aborted)
+        throw new DOMException('Request aborted', 'AbortError');
+      await processAIConversation(
+        retryMessages.map((message) => ({
+          role: message.role,
+          content: message.content,
+        }))
+      );
+    } catch (error) {
+      if (error instanceof Error && error.name === 'AbortError') return;
+
+      setTaskOutcome('failed');
+      const userFacingMessage = getUserFacingErrorMessage(
+        error,
+        'The request failed. Please try it again.'
+      );
+      setMessages((current) => [
+        ...current,
+        {
+          id: `assistant_error_${Date.now()}`,
+          content: userFacingMessage,
+          role: 'assistant',
+          timestamp: new Date(),
+          error: error instanceof Error ? error.message : 'Unknown error',
+        },
+      ]);
+
+      toast({
+        title: 'Request failed',
+        description: userFacingMessage,
+        variant: 'destructive',
+      });
+    } finally {
+      setIsLoading(false);
+      setSendStatus(null);
+      setAssistantResponsePhase('idle');
+      abortControllerRef.current = null;
+      setIsStreamingResponse(false);
+      streamingMessageIdRef.current = null;
+    }
+  };
+
+  const handleSendMessage = async () => {
+    if (
+      (selectedImages.length === 0 &&
+        !input.trim() &&
+        !canvasContextRef.current.homepageImage) ||
+      isLoading
+    ) {
+      return;
+    }
+
+    setIsLoading(true);
+    setTaskOutcome('ready');
+    requestCommittedRef.current = false;
+    setLastChange('');
+    abortControllerRef.current = new AbortController();
+    setSendStatus(null);
+
+    // Prepare message content
+    let messageContent: string | MessageContent[] = input.trim();
+    let messageImages: { file: File; thumbnail: string; base64: string }[] = [];
+
+    const homepageImage = canvasContextRef.current.homepageImage;
+
+    try {
+      if (selectedImages.length > 0) {
+        setSendStatus('Preparing your image...');
+        const { createImageThumbnail, encodeImageToBase64 } = await import(
+          '@/lib/image-utils'
+        );
+        // Convert images to base64 and create message content array
+        const imageData = await Promise.all(
+          selectedImages.map(async (file) => {
+            const base64 = await encodeImageToBase64(file);
+            const thumbnail = await createImageThumbnail(file);
+            return { file, thumbnail, base64 };
+          })
+        );
+
+        messageImages = imageData;
+
+        // Create multimodal content
+        const contentArray: MessageContent[] = [];
+
+        if (input.trim()) {
+          contentArray.push({
+            type: 'text',
+            text: input.trim(),
+          });
+        }
+
+        for (const { base64 } of imageData) {
+          contentArray.push({
+            type: 'image_url',
+            image_url: {
+              url: base64,
+            },
+          });
+        }
+
+        messageContent = contentArray;
+      } else if (homepageImage && aiMode === 'image_to_flowchart') {
+        setSendStatus('Preparing your image...');
+        const mimeMatch = homepageImage.base64.match(/^data:(.*?);/);
+        const mimeType = mimeMatch?.[1] || 'image/png';
+        const filename =
+          homepageImage.filename ||
+          `uploaded-image.${mimeType.split('/')[1] || 'png'}`;
+        messageImages = [
+          {
+            file: new File([], filename, { type: mimeType }),
+            thumbnail: homepageImage.thumbnail || homepageImage.base64,
+            base64: homepageImage.base64,
+          },
+        ];
+
+        messageContent = [
+          ...(input.trim()
+            ? [
+                {
+                  type: 'text' as const,
+                  text: input.trim(),
+                },
+              ]
+            : []),
+          {
+            type: 'image_url' as const,
+            image_url: {
+              url: homepageImage.base64,
+            },
+          },
+        ];
+      }
+    } catch (error) {
+      console.error('Failed to prepare message:', error);
+      toast({
+        title: 'Image preparation failed',
+        description: 'Please try a smaller image or upload it again.',
+        variant: 'destructive',
+      });
+      setIsLoading(false);
+      setSendStatus(null);
+      return;
+    }
+
+    const userMessageId = Date.now().toString();
+    const userMessage: Message = {
+      id: userMessageId,
+      content: messageContent,
+      role: 'user',
+      timestamp: new Date(),
+      images: messageImages.length > 0 ? messageImages : undefined,
+    };
+
+    setMessages((prev) => [...prev, userMessage]);
+    setInput('');
+    setSelectedImages([]);
+    setImagePreviewUrls((prev) => {
+      prev.forEach((url) => URL.revokeObjectURL(url));
+      return [];
+    });
+    if (homepageImage && aiMode === 'image_to_flowchart') {
+      canvasContextRef.current.homepageImage = undefined;
+      localStorage.removeItem('flowchart_auto_image');
+    }
+    setIsStreamingResponse(true);
+    setAssistantResponsePhase('thinking');
+
+    try {
+      await waitForNextPaint();
+
+      if (abortControllerRef.current?.signal.aborted)
+        throw new DOMException('Request aborted', 'AbortError');
+
+      const conversationPayload: any[] = [
+        ...messages.map((msg) => ({
+          role: msg.role,
+          content: typeof msg.content === 'string' ? msg.content : msg.content,
+        })),
+        {
+          role: 'user',
+          content: userMessage.content,
+        },
+      ];
+
+      await processAIConversation(conversationPayload);
+    } catch (error) {
+      console.error('Error sending message:', error);
+
+      if (error instanceof Error && error.name === 'AbortError') {
+        // Request was cancelled, don't show error
+        return;
+      }
+
+      setTaskOutcome('failed');
+      const userFacingMessage = getUserFacingErrorMessage(
+        error,
+        'Sorry, I encountered an error while processing your request. Please try again.'
+      );
+
+      const errorMessage: Message = {
+        id: (Date.now() + 2).toString(),
+        content: userFacingMessage,
+        role: 'assistant',
+        timestamp: new Date(),
+        error: error instanceof Error ? error.message : 'Unknown error',
+      };
+
+      setMessages((prev) => [...prev, errorMessage]);
+
+      toast({
+        title: 'Error',
+        description: userFacingMessage,
+        variant: 'destructive',
+      });
+    } finally {
+      setIsLoading(false);
+      setSendStatus(null);
+      setAssistantResponsePhase('idle');
+      abortControllerRef.current = null;
+      setIsStreamingResponse(false);
+      streamingMessageIdRef.current = null;
+    }
+  };
+
+  // Process one agent stream. Canvas mutations are committed only after a
+  // validated complete tool result and the terminal finish event arrive.
+  const processAIConversationCore = async (
+    conversationMessages: any[],
+    diagnostic: {
+      requestId: string;
+      stage: FlowchartDiagnosticStage;
+      code: FlowchartDiagnosticCode;
+      startedAt: number;
+    },
+    retainedBody?: any
+  ) => {
+    const canvasSnapshot = getCanvasState();
+    const sceneElements = excalidrawAPI
+      ? [...excalidrawAPI.getSceneElements()]
+      : [];
+    const selectedElementIds = excalidrawAPI
+      ? excalidrawAPI.getAppState().selectedElementIds
+      : {};
+    const targetResolution = resolveDiagramTarget({
+      elements: sceneElements,
+      selectedElementIds,
+      metadata: deriveFlowchartAiMetadataFromElements(
+        sceneElements,
+        flowchartAiMetadata
+      ),
+    });
+    if (targetResolution.status === 'ambiguous') {
+      const ambiguousTargetError = new Error(
+        'Diagram target is ambiguous; select one diagram first'
+      );
+      (
+        ambiguousTargetError as Error & { userFacingMessage?: string }
+      ).userFacingMessage =
+        'Select one AI diagram before asking the assistant to edit it.';
+      throw ambiguousTargetError;
+    }
+    const currentMetadata = deriveFlowchartAiMetadataFromElements(
+      sceneElements,
+      flowchartAiMetadata
+    );
+    if (
+      JSON.stringify(currentMetadata) !== JSON.stringify(flowchartAiMetadata)
+    ) {
+      onFlowchartAiMetadataChange(currentMetadata);
+    }
+    const nativeSnapshot = nativeEditor?.getDocument();
+    const nativeSelection = nativeEditor?.getSelection() ?? [];
+    const nativeHasObjects = nativeSnapshot
+      ? readNativeCells(nativeSnapshot).some(
+          (cell) => cell.parent && cell.parent !== '0'
+        )
+      : false;
+    const inferredMode = nativeSnapshot
+      ? nativeHasObjects
+        ? 'patch'
+        : 'create'
+      : targetResolution.status === 'resolved'
+        ? 'extend'
+        : 'replace';
+
+    setSendStatus(null);
+    setAssistantResponsePhase('thinking');
+    markFlowchartPerformance('agentRequestStarted');
+
+    const requestBody = retainedBody || {
+      messages: conversationMessages,
+      aiContext: {
+        ...(nativeSnapshot
+          ? {
+              editorKind: 'drawio',
+              nativeDocument: nativeSnapshot,
+              nativeSelection,
+            }
+          : {}),
+        canvasSnapshot,
+        lastMermaid: canvasContextRef.current.lastMermaid,
+        requestedMode: inferredMode,
+        mode: aiMode,
+        selectedDiagramId:
+          targetResolution.status === 'resolved'
+            ? targetResolution.diagramId
+            : undefined,
+        targetResolution,
+        flowchartAi: currentMetadata,
+      },
+    };
+    const response = await fetch('/api/ai/chat/flowchart', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(requestBody),
+      signal: abortControllerRef.current?.signal,
+    });
+    diagnostic.requestId =
+      response.headers.get('x-flowchart-request-id') || 'missing-request-id';
+
+    if (!response.ok) {
+      diagnostic.code = 'http_error';
+      const errorData = await response.json().catch(() => ({}));
+      const requestError = new Error(
+        typeof errorData.message === 'string'
+          ? errorData.message
+          : `HTTP error! status: ${response.status}`
+      );
+
+      if (
+        errorData.error === 'prompt_rejected' ||
+        errorData.error === 'prompt_flagged' ||
+        errorData.error === 'moderation_unavailable'
+      ) {
+        (requestError as { userFacingMessage?: string }).userFacingMessage =
+          errorData.message;
+      }
+
+      throw requestError;
+    }
+
+    const reader = response.body?.getReader();
+    if (!reader) {
+      diagnostic.code = 'no_response_body';
+      throw new Error('No response body');
+    }
+    diagnostic.stage = 'sse_map';
+
+    const sseDecoder = createSseEventDecoder();
+    const streamingMessageId = `assistant_${Date.now()}_${Math.random()
+      .toString(36)
+      .slice(2)}`;
+    let messageCreated = false;
+    let accumulatedContent = '';
+    let pendingCommand: CanvasCommand | null = null;
+    let streamFinished = false;
+    let finishToolCallsCompleted = false;
+    let streamAborted = false;
+    let streamError: Error | null = null;
+    let streamFailureCode: FlowchartDiagnosticCode | null = null;
+    let receivedDone = false;
+    let receivedFirstEvent = false;
+
+    const ensureStreamingMessage = () => {
+      if (messageCreated) return;
+      messageCreated = true;
+      streamingMessageIdRef.current = streamingMessageId;
+      const timestamp = new Date();
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: streamingMessageId,
+          content: '',
+          role: 'assistant',
+          timestamp,
+          isFlowchart: false,
+        },
+      ]);
+    };
+
+    const updateStreamingMessage = (updater: (prev: Message) => Message) => {
+      setMessages((prev) =>
+        prev.map((msg) => (msg.id === streamingMessageId ? updater(msg) : msg))
+      );
+    };
+
+    const setStreamingContent = (content: string) => {
+      ensureStreamingMessage();
+      accumulatedContent = content;
+      updateStreamingMessage((msg) => ({
+        ...msg,
+        content,
+      }));
+    };
+
+    const appendStreamingContent = (delta: string) => {
+      if (!delta) return;
+      const nextContent = accumulatedContent + delta;
+      setStreamingContent(nextContent);
+    };
+
+    const handleEvent = (event: unknown): void => {
+      if (event === '[DONE]') {
+        receivedDone = true;
+        return;
+      }
+      if (!event || typeof event !== 'object') return;
+      if (!receivedFirstEvent) {
+        receivedFirstEvent = true;
+        markFlowchartPerformance('firstAgentEvent');
+      }
+
+      const data = event as Record<string, any>;
+      if (data.type === 'text') {
+        setAssistantResponsePhase('responding');
+        setSendStatus(null);
+        appendStreamingContent(data.content ?? '');
+        return;
+      }
+      if (
+        data.type === 'progress' &&
+        ['building', 'preparing'].includes(data.stage)
+      ) {
+        setAssistantResponsePhase(data.stage);
+        return;
+      }
+      if (data.type === 'tool-call') {
+        const parsed = canvasCommandSchema.safeParse(data.args);
+        if (data.toolName !== 'generate_flowchart' || !parsed.success) {
+          streamError = new Error('Agent returned an invalid canvas command');
+          streamFailureCode = 'invalid_sse_command';
+          return;
+        }
+        if (pendingCommand) {
+          streamError = new Error('Agent returned multiple canvas commands');
+          streamFailureCode = 'multiple_canvas_commands';
+          return;
+        }
+        pendingCommand = parsed.data;
+        setAssistantResponsePhase('editing');
+        setSendStatus(null);
+        markFlowchartPerformance('canvasToolReceived');
+        return;
+      }
+      if (data.type === 'finish') {
+        streamFinished = true;
+        finishToolCallsCompleted = Boolean(data.toolCallsCompleted);
+        return;
+      }
+      if (data.type === 'aborted') {
+        streamAborted = true;
+        return;
+      }
+      if (data.type === 'error') {
+        const message = data.error || 'Agent stream failed';
+        streamError = new Error(message);
+        const limitMessage = providerLimitMessage(message);
+        if (limitMessage) {
+          (
+            streamError as Error & { userFacingMessage?: string }
+          ).userFacingMessage = limitMessage;
+          streamFailureCode = 'rate_limit_exceeded';
+        } else {
+          streamFailureCode = 'agent_stream_error';
+        }
+      }
+    };
+
+    while (!receivedDone) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      for (const event of sseDecoder.push(value)) handleEvent(event);
+    }
+    for (const event of sseDecoder.finish()) handleEvent(event);
+
+    const completedCommand = pendingCommand as CanvasCommand | null;
+    const mermaidCode =
+      completedCommand?.kind === 'render-mermaid'
+        ? completedCommand.mermaidCode
+        : undefined;
+
+    if (messageCreated) {
+      updateStreamingMessage((msg) => ({
+        ...msg,
+        content: accumulatedContent,
+        isFlowchart: Boolean(completedCommand),
+        mermaidCode,
+        timestamp: new Date(),
+      }));
+    } else if (accumulatedContent.trim().length > 0) {
+      streamingMessageIdRef.current = null;
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: `assistant_${Date.now()}_${Math.random().toString(36).slice(2)}`,
+          content: accumulatedContent,
+          role: 'assistant',
+          timestamp: new Date(),
+          isFlowchart: Boolean(completedCommand),
+          mermaidCode,
+        },
+      ]);
+    }
+
+    if (!accumulatedContent.trim() && !completedCommand && messageCreated) {
+      setMessages((prev) =>
+        prev.filter((message) => message.id !== streamingMessageId)
+      );
+    }
+
+    if (streamAborted || abortControllerRef.current?.signal.aborted) {
+      diagnostic.code = 'stream_aborted';
+      throw new DOMException('Request aborted', 'AbortError');
+    }
+    if (streamError) {
+      diagnostic.code =
+        streamFailureCode || classifyFlowchartError(streamError);
+      throw streamError;
+    }
+    if (!streamFinished) {
+      diagnostic.code = 'stream_incomplete';
+      throw new Error('Agent stream ended before completion');
+    }
+    if (completedCommand && !finishToolCallsCompleted) {
+      diagnostic.code = 'canvas_command_incomplete';
+      throw new Error('Canvas command was not completed by the agent');
+    }
+    if (!completedCommand && finishToolCallsCompleted) {
+      diagnostic.code = 'canvas_command_missing';
+      throw new Error('Agent completed a tool without a canvas command');
+    }
+    if (!completedCommand && !accumulatedContent.trim()) {
+      const error = new Error('The assistant returned no usable result');
+      (error as Error & { userFacingMessage?: string }).userFacingMessage =
+        'The assistant returned no usable result. Your diagram was kept. Please retry.';
+      throw error;
+    }
+    logFlowchartDiagnostic({
+      requestId: diagnostic.requestId,
+      stage: 'sse_map',
+      status: 'success',
+      code: 'stream_finished',
+      elapsedMs: Date.now() - diagnostic.startedAt,
+    });
+    if (completedCommand) {
+      diagnostic.stage = 'prepare_canvas';
+      diagnostic.code = 'prepare_canvas_failed';
+      await applyCanvasCommand(completedCommand);
+      try {
+        const nativeResult = completedCommand.kind === 'drawio-command';
+        const exportable = nativeResult
+          ? hasNativeExportContent(nativeEditorRef.current?.getDocument())
+          : hasLiveSceneContent(excalidrawAPI?.getSceneElements());
+        if (exportable)
+          trackFlowchartEvent(EVENTS.exportReady, {
+            mode: aiMode,
+            editor: nativeResult ? 'drawio' : 'excalidraw',
+          });
+      } catch {}
+      logFlowchartDiagnostic({
+        requestId: diagnostic.requestId,
+        stage: 'prepare_canvas',
+        status: 'success',
+        code: 'prepare_canvas_succeeded',
+        commandKind: completedCommand.kind,
+        operation:
+          completedCommand.kind === 'patch-diagram'
+            ? 'patch'
+            : completedCommand.operation,
+        operationCount:
+          completedCommand.kind === 'patch-diagram'
+            ? completedCommand.patch.operations.length
+            : undefined,
+        elapsedMs: Date.now() - diagnostic.startedAt,
+      });
+    }
+  };
+
+  const processAIConversation = async (
+    conversationMessages: any[],
+    retainedBody?: any
+  ) => {
+    const diagnostic = {
+      requestId: 'not-issued',
+      stage: 'request' as FlowchartDiagnosticStage,
+      code: 'client_request_failed' as FlowchartDiagnosticCode,
+      startedAt: Date.now(),
+    };
+
+    try {
+      await processAIConversationCore(
+        conversationMessages,
+        diagnostic,
+        retainedBody
+      );
+    } catch (error) {
+      const aborted = error instanceof Error && error.name === 'AbortError';
+      logFlowchartDiagnostic({
+        requestId: diagnostic.requestId,
+        stage: diagnostic.stage,
+        status: aborted ? 'aborted' : 'failed',
+        code: aborted
+          ? 'stream_aborted'
+          : diagnostic.code === 'client_request_failed'
+            ? classifyFlowchartError(error)
+            : diagnostic.code,
+        errorName: getSafeErrorName(error),
+        elapsedMs: Date.now() - diagnostic.startedAt,
+      });
+      throw error;
+    }
+  };
+
+  const handleKeyPress = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      handleSendMessage();
+    }
+  };
+
+  const handleStopGeneration = useCallback(() => {
+    if (abortControllerRef.current && !requestCommittedRef.current) {
+      abortControllerRef.current.abort();
+      setTaskOutcome('cancelled');
+      setAssistantResponsePhase('cancelling');
+    }
+  }, []);
+
+  const handleNewConversation = () => {
+    if (isLoading) {
+      handleStopGeneration();
+    }
+
+    setMessages([]);
+    setLastChange('');
+    setTaskOutcome('ready');
+    setInput('');
+    setSendStatus(null);
+    setAssistantResponsePhase('idle');
+    setIsStreamingResponse(false);
+    streamingMessageIdRef.current = null;
+    localStorage.removeItem(chatStorageKey);
+
+    toast({
+      title: 'New conversation created',
+      description:
+        'Chat history cleared. You can start a fresh AI conversation.',
+    });
+  };
+
+  const renderFormattedText = (text: string) => {
+    return <MarkdownRenderer content={text} />;
+  };
+
+  const renderMessageContent = (message: Message) => {
+    if (message.error) {
+      return (
+        <div className="rounded-lg border border-red-200 bg-red-50 p-3 text-red-700">
+          <div className="flex items-start gap-2">
+            <AlertCircle className="mt-0.5 h-4 w-4 flex-shrink-0" />
+            <div className="min-w-0 flex-1">
+              <p className="text-sm font-medium">Request failed</p>
+              <p className="mt-1 text-sm">
+                {typeof message.content === 'string'
+                  ? message.content
+                  : 'The request could not be completed.'}
+              </p>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="mt-3 h-8 border-red-200 bg-white text-red-700 hover:bg-red-100"
+                onClick={() => handleRetry(message.id)}
+                disabled={isLoading}
+              >
+                Retry
+              </Button>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    return (
+      <div className="space-y-2">
+        <div className="leading-relaxed">
+          {typeof message.content === 'string'
+            ? renderFormattedText(message.content)
+            : message.content.map((content, index) => (
+                <div key={index}>
+                  {content.type === 'text' && content.text && (
+                    <div>{renderFormattedText(content.text)}</div>
+                  )}
+                  {content.type === 'image_url' && content.image_url && (
+                    <div className="mt-2">
+                      <img
+                        src={content.image_url.url}
+                        alt="Uploaded content"
+                        className="max-w-full h-auto rounded-lg border border-gray-200"
+                        style={{ maxHeight: '200px' }}
+                      />
+                    </div>
+                  )}
+                </div>
+              ))}
+        </div>
+        {/* Flowchart is automatically added to canvas, no need for manual button */}
+      </div>
+    );
+  };
+
+  return (
+    <div
+      className={
+        embedded
+          ? `relative h-full w-full min-h-0 bg-muted text-foreground ${isOpen ? '' : 'hidden'} ${className || ''}`
+          : `fixed top-0 right-0 z-40 h-full w-screen max-w-full bg-white shadow-lg transition-transform duration-300 ease-in-out md:w-[var(--sidebar-width)] ${
+              isOpen ? 'translate-x-0' : 'translate-x-full'
+            }`
+      }
+      data-embedded-assistant={embedded || undefined}
+      style={{ '--sidebar-width': `${width}px` } as CSSProperties}
+    >
+      <div className="flex h-full flex-col">
+        {/* Header */}
+        {!embedded && (
+          <div className="flex items-center justify-between border-b border-gray-200 px-4 py-3">
+            <div className="min-w-0">
+              <h2 className="truncate text-base font-medium text-gray-900">
+                AI Assistant
+              </h2>
+            </div>
+            <div className="flex items-center gap-1">
+              <Button
+                onClick={handleNewConversation}
+                variant="ghost"
+                size="icon"
+                className="h-8 w-8 text-gray-500 hover:bg-gray-100 hover:text-gray-900"
+                disabled={isLoading}
+                aria-label="New conversation"
+                title="New conversation"
+              >
+                <Plus className="h-4 w-4" />
+              </Button>
+              <Button
+                onClick={onToggle}
+                variant="ghost"
+                size="icon"
+                className="h-8 w-8 text-gray-500 hover:bg-gray-100 hover:text-gray-900"
+                aria-label="Close AI assistant"
+                title="Close"
+              >
+                <X className="h-4 w-4" />
+              </Button>
+            </div>
+          </div>
+        )}
+        {embedded && (
+          <div className="flex justify-end px-3 py-1">
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-7 text-xs text-muted-foreground"
+              onClick={handleNewConversation}
+              disabled={isLoading}
+            >
+              <Plus className="h-3 w-3" />
+              New conversation
+            </Button>
+          </div>
+        )}
+        {/* Messages */}
+        <div className="flex-1 overflow-hidden relative">
+          <ScrollArea ref={scrollAreaRef} className="h-full w-full">
+            <div className="space-y-4 px-4 pb-4 min-h-0">
+              {messages.length === 0 && (
+                <div className="text-center py-8 text-gray-500">
+                  <p className="text-sm">
+                    {nativeEditor
+                      ? 'Ask me to create or edit a diagram!'
+                      : 'Ask me to create a flowchart!'}
+                  </p>
+                  <p className="text-xs mt-1 opacity-75">
+                    I can help you visualize processes, workflows, and ideas.
+                  </p>
+                </div>
+              )}
+
+              {messages.map((message) => (
+                <div
+                  key={message.id}
+                  className={
+                    !embedded && message.role === 'user'
+                      ? 'flex justify-end'
+                      : ''
+                  }
+                >
+                  {message.role === 'user' ? (
+                    <Card
+                      className={
+                        embedded
+                          ? 'border-0 border-b rounded-none shadow-none bg-transparent p-0 pb-3 text-foreground'
+                          : 'max-w-[280px] p-3 bg-gray-100 text-gray-900 border-gray-100'
+                      }
+                    >
+                      <div className="text-sm leading-relaxed space-y-2">
+                        {typeof message.content === 'string' ? (
+                          embedded && message.content.length > 240 ? (
+                            <details>
+                              <summary className="text-xs text-muted-foreground">
+                                <span className="line-clamp-2">
+                                  {message.content.slice(0, 60)}…
+                                </span>
+                              </summary>
+                              <p className="mt-2">{message.content}</p>
+                            </details>
+                          ) : (
+                            <p>{message.content}</p>
+                          )
+                        ) : (
+                          message.content.map((content, index) => (
+                            <div key={index}>
+                              {content.type === 'text' && content.text && (
+                                <p>{content.text}</p>
+                              )}
+                              {content.type === 'image_url' &&
+                                content.image_url && (
+                                  <div className="mt-2">
+                                    <img
+                                      src={content.image_url.url}
+                                      alt="Uploaded content"
+                                      className="max-w-full h-auto rounded-lg border border-gray-200"
+                                      style={{ maxHeight: '150px' }}
+                                    />
+                                  </div>
+                                )}
+                            </div>
+                          ))
+                        )}
+                      </div>
+                    </Card>
+                  ) : (
+                    <div className="max-w-full">
+                      <div className="flex-1">
+                        {embedded &&
+                        typeof message.content === 'string' &&
+                        message.content.length > 400 &&
+                        (message.isFlowchart ||
+                          streamingMessageIdRef.current === message.id) ? (
+                          <details>
+                            <summary className="text-xs text-muted-foreground">
+                              Structure notes
+                            </summary>
+                            {renderMessageContent(message)}
+                          </details>
+                        ) : (
+                          renderMessageContent(message)
+                        )}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              ))}
+
+              {embedded && isLoading && (
+                <div
+                  className="flex items-start gap-2 py-1 text-sm"
+                  data-ai-task-progress
+                >
+                  <Loader2 className="mt-0.5 h-4 w-4 shrink-0 animate-spin text-primary" />
+                  <div className="min-w-0 flex-1">
+                    <p aria-live="polite">{activeSendStatus || taskLabel}</p>
+                    <span
+                      className="text-xs text-muted-foreground"
+                      aria-live="off"
+                    >
+                      {elapsedSeconds}s
+                    </span>
+                  </div>
+                  <button
+                    type="button"
+                    className="shrink-0 text-xs text-muted-foreground hover:text-foreground"
+                    onClick={handleStopGeneration}
+                    disabled={
+                      assistantResponsePhase === 'complete' ||
+                      assistantResponsePhase === 'cancelling'
+                    }
+                  >
+                    Cancel
+                  </button>
+                </div>
+              )}
+              {embedded && !isLoading && taskOutcome === 'cancelled' && (
+                <output className="block text-xs text-muted-foreground">
+                  {taskLabel}
+                </output>
+              )}
+              {embedded && lastChange && !isLoading && (
+                <div className="text-xs" aria-live="polite">
+                  <p>{lastChange}</p>
+                  <button
+                    type="button"
+                    className="mt-1 text-primary underline-offset-2 hover:underline"
+                    onClick={onFocusChanges}
+                  >
+                    View changes
+                  </button>
+                </div>
+              )}
+              {!embedded &&
+                isStreamingResponse &&
+                assistantResponsePhase === 'thinking' &&
+                !streamingMessageIdRef.current && (
+                  <div className="max-w-full">
+                    <div
+                      className="inline-flex items-center gap-2 rounded-full bg-gray-50 px-3 py-2 text-sm text-gray-600"
+                      aria-live="polite"
+                    >
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                      <span>{ASSISTANT_THINKING_STATUS}</span>
+                    </div>
+                  </div>
+                )}
+
+              {!embedded &&
+                isStreamingResponse &&
+                (assistantResponsePhase === 'editing' ||
+                  assistantResponsePhase === 'rendering') && (
+                  <div className="max-w-full">
+                    <div
+                      className="inline-flex items-center gap-2 rounded-full bg-blue-50 px-3 py-2 text-sm text-blue-700"
+                      aria-live="polite"
+                    >
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                      <span>
+                        {assistantResponsePhase === 'editing'
+                          ? FLOWCHART_EDITING_STATUS
+                          : FLOWCHART_RENDERING_STATUS}
+                      </span>
+                    </div>
+                  </div>
+                )}
+            </div>
+          </ScrollArea>
+        </div>
+
+        {/* Input */}
+        <div className="border-t border-gray-200">
+          {/* Image previews */}
+          {selectedImages.length > 0 && (
+            <div className="mb-3 mx-4 mt-4">
+              <div className="flex flex-wrap gap-2">
+                {selectedImages.map((file, index) => (
+                  <div key={index} className="relative">
+                    <img
+                      src={imagePreviewUrls[index]}
+                      alt={`Preview ${index + 1}`}
+                      className="w-16 h-16 object-cover rounded-lg border border-gray-200"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => removeImage(index)}
+                      className="absolute -top-1 -right-1 w-5 h-5 bg-red-500 text-white rounded-full flex items-center justify-center text-xs hover:bg-red-600 transition-colors"
+                      disabled={isLoading}
+                    >
+                      <X className="w-3 h-3" />
+                    </button>
+                    <div className="absolute bottom-0 left-0 right-0 bg-black/50 text-white text-xs px-1 py-0.5 rounded-b-lg truncate">
+                      {file.name}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Hidden file input */}
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="image/*"
+            onChange={(e) => handleImageSelect(e.target.files)}
+            className="hidden"
+          />
+
+          <div className="p-3">
+            <div className="rounded-2xl border border-gray-200 bg-white shadow-sm focus-within:border-blue-400 focus-within:ring-2 focus-within:ring-blue-100">
+              <Textarea
+                ref={textareaRef}
+                placeholder="Describe what to create or change..."
+                value={input}
+                onChange={(event) => {
+                  setInput(event.target.value);
+                  setTimeout(() => adjustTextareaHeight(), 0);
+                }}
+                onKeyDown={handleKeyPress}
+                disabled={isLoading}
+                className="min-h-[80px] max-h-[200px] resize-none overflow-y-auto rounded-2xl border-0 bg-transparent px-3 py-3 text-sm leading-6 text-gray-900 shadow-none placeholder:text-gray-400 focus-visible:ring-0"
+                style={{
+                  height: '80px',
+                  wordWrap: 'break-word',
+                  whiteSpace: 'pre-wrap',
+                }}
+              />
+
+              <div className="flex min-w-0 items-center gap-1.5 border-t border-gray-100 p-2">
+                <Select
+                  value={aiMode}
+                  onValueChange={(value) => setAiMode(value as AiAssistantMode)}
+                  disabled={isLoading}
+                >
+                  <SelectTrigger
+                    size="sm"
+                    className="min-w-0 max-w-[150px] border-0 bg-gray-50 px-2 shadow-none"
+                    aria-label="Assistant mode"
+                  >
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {(Object.keys(AI_ASSISTANT_MODES) as AiAssistantMode[]).map(
+                      (mode) => (
+                        <SelectItem key={mode} value={mode}>
+                          {nativeEditor
+                            ? mode === 'image_to_flowchart'
+                              ? 'Image to Diagram'
+                              : 'Text to Diagram'
+                            : AI_ASSISTANT_MODES[mode].label}
+                        </SelectItem>
+                      )
+                    )}
+                  </SelectContent>
+                </Select>
+
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  className="h-8 w-8 shrink-0 text-gray-500 hover:bg-gray-100 hover:text-gray-900"
+                  onClick={handleCameraClick}
+                  disabled={isLoading}
+                  aria-label="Attach image"
+                  title="Attach image"
+                >
+                  <Paperclip className="h-4 w-4" />
+                </Button>
+
+                <div className="min-w-0 flex-1" />
+
+                {isLoading && embedded ? (
+                  <Button
+                    type="button"
+                    size="icon"
+                    className="h-8 w-8 shrink-0"
+                    disabled
+                    aria-label="AI is working"
+                  >
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  </Button>
+                ) : isLoading ? (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="h-8 shrink-0 px-2 text-gray-600 hover:bg-gray-100"
+                    onClick={handleStopGeneration}
+                    disabled={
+                      assistantResponsePhase === 'complete' ||
+                      assistantResponsePhase === 'cancelling'
+                    }
+                  >
+                    Cancel
+                  </Button>
+                ) : (
+                  <Button
+                    type="button"
+                    size="icon"
+                    className="h-8 w-8 shrink-0 rounded-full bg-blue-600 text-white hover:bg-blue-700"
+                    onClick={handleSendMessage}
+                    disabled={!input.trim() && selectedImages.length === 0}
+                    aria-label="Send message"
+                    title="Send"
+                  >
+                    <ArrowUp className="h-4 w-4" />
+                  </Button>
+                )}
+              </div>
+            </div>
+
+            {!embedded && (
+              <p
+                className="mt-2 flex min-h-4 items-center gap-1.5 px-1 text-xs text-gray-400"
+                aria-live="off"
+              >
+                {(activeSendStatus || isLoading) && (
+                  <Loader2 className="h-3 w-3 animate-spin text-blue-500" />
+                )}
+                <span>
+                  {isLoading
+                    ? `${activeSendStatus || taskLabel} · ${elapsedSeconds}s`
+                    : (activeSendStatus ??
+                      'Enter to send · Shift+Enter for a new line')}
+                </span>
+              </p>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+export default AiChatSidebar;
