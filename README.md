@@ -51,7 +51,7 @@ FlowChart AI is built with modern, production-ready technologies:
 - **Frontend**: Next.js 15, React 19, TypeScript 5
 - **Styling**: Tailwind CSS 4, Radix UI components
 - **Canvas**: Excalidraw integration with Mermaid support
-- **AI**: Mastra agents through the Groq API (`GROQ_API_KEY`)
+- **AI**: Mastra agents through the Gemini API (`GOOGLE_GENERATIVE_AI_API_KEY`)
 - **Storage**: local JSON files in `.data/flowcharts`
 - **Deployment**: Vercel
 
@@ -73,7 +73,7 @@ FlowChart AI is perfect for:
 Before you begin, ensure you have:
 
 - **Node.js 22.13+** and **pnpm** installed
-- **Groq API key** for AI functionality
+- **Gemini API key** for AI functionality
 
 ### 1. Clone and Install
 
@@ -93,27 +93,27 @@ pnpm install
 cp env.example .env.local
 ```
 
-Edit `.env.local`. The only required value is a Groq key:
+Edit `.env.local`. The only required value is a Gemini key:
 
 ```env
-GROQ_API_KEY="your-groq-api-key"
+GOOGLE_GENERATIVE_AI_API_KEY="your-gemini-api-key"
 ```
 
 Diagrams are saved as JSON files in `.data/flowcharts`. No database, login, or payment account is required.
 
-Optional overrides (any Groq model id):
+Optional overrides (any Gemini model id):
 
 ```env
-FLOWCHART_TEXT_MODEL="openai/gpt-oss-120b"
-FLOWCHART_IMAGE_MODEL="qwen/qwen3.8-27b"
+FLOWCHART_TEXT_MODEL="gemini-flash-latest"
+FLOWCHART_IMAGE_MODEL="gemini-flash-latest"
 ```
 
 `RESEND_API_KEY` is only needed if you use the newsletter or contact forms.
 
-### 3. Groq API
+### 3. Gemini API
 
-1. Create an API key at [Groq Console](https://console.groq.com/keys)
-2. Add it as `GROQ_API_KEY` in `.env.local`
+1. Create an API key at [Google AI Studio](https://aistudio.google.com/apikey)
+2. Add it as `GOOGLE_GENERATIVE_AI_API_KEY` in `.env.local`
 
 ### 4. Run Development Server
 
@@ -170,14 +170,14 @@ features: {
 - Modify `messages/en.json` for text content
 
 ### AI Models
-Requests go to Groq. Defaults live in `src/lib/ai-models.ts`:
+Requests go to Gemini. Defaults live in `src/lib/ai-models.ts`:
 
 ```typescript
-export const TEXT_TO_FLOWCHART_MODEL = 'openai/gpt-oss-120b';
-export const IMAGE_TO_FLOWCHART_MODEL = 'qwen/qwen3.8-27b';
+export const TEXT_TO_FLOWCHART_MODEL = 'gemini-flash-latest';
+export const IMAGE_TO_FLOWCHART_MODEL = 'gemini-flash-latest';
 ```
 
-Override either model with `FLOWCHART_TEXT_MODEL` or `FLOWCHART_IMAGE_MODEL` in `.env.local`. Use a vision-capable Groq model for image mode.
+Override either model with `FLOWCHART_TEXT_MODEL` or `FLOWCHART_IMAGE_MODEL` in `.env.local`. Use a vision-capable Gemini model for image mode.
 
 ### Styling
 - Built with Tailwind CSS 4
@@ -232,8 +232,8 @@ git push origin feature/your-feature-name
 ### Common Issues
 
 #### AI Generation Not Working
-- Confirm `GROQ_API_KEY` is set in `.env.local` and restart `pnpm dev`
-- Check the Groq console for quota or rate-limit errors
+- Confirm `GOOGLE_GENERATIVE_AI_API_KEY` is set in `.env.local` and restart `pnpm dev`
+- Check Google AI Studio for quota or rate-limit errors
 - Image mode needs a vision model (`FLOWCHART_IMAGE_MODEL`)
 
 #### Saved Diagrams
@@ -263,13 +263,7 @@ pnpm install
 
 If you discover a security vulnerability, please email us at [support@flowchartai.org](mailto:support@flowchartai.org) instead of opening a public issue.
 
-### Security Features
-
-- **Authentication**: Secure OAuth integration with major providers
-- **Data Encryption**: All data encrypted in transit and at rest
-- **API Security**: Rate limiting and request validation
-- **Privacy**: No tracking, minimal data collection
-- **Self-Hosting**: Complete data control and privacy
+This build has no accounts and no payment service. Diagrams are JSON files on the machine that runs the app.
 
 ## 📄 License
 
@@ -307,23 +301,4 @@ FlowChart AI is built on the shoulders of amazing open source projects:
 - **[Next.js](https://nextjs.org/)** - The React framework for production
 - **[Tailwind CSS](https://tailwindcss.com/)** - The utility-first CSS framework
 - **[Radix UI](https://www.radix-ui.com/)** - Low-level UI primitives
-- **[Drizzle ORM](https://orm.drizzle.team/)** - TypeScript ORM for SQL databases
-- **[Better Auth](https://www.better-auth.com/)** - Modern authentication library
 
-Special thanks to the [MkSaaS](https://mksaas.com) template that provided the foundation for this project.
-
-## 🌟 Star History
-
-[![Star History Chart](https://api.star-history.com/svg?repos=tanchaowen84/flowchartai&type=Date)](https://star-history.com/#tanchaowen84/flowchartai&Date)
-
----
-
-<div align="center">
-  <p>Made with ❤️ by the FlowChart AI team</p>
-  <p>
-    <a href="https://flowchartai.org">Website</a> •
-    <a href="https://github.com/tanchaowen84/flowchartai">GitHub</a> •
-    <a href="https://discord.gg/Pfdyhqqu">Discord</a> •
-    <a href="https://x.com/tanchaowen84">Twitter</a>
-  </p>
-</div>

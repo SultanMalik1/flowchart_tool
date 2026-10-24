@@ -97,7 +97,7 @@ export default async function HomePage(props: HomePageProps) {
             name: 'Is there a free version of FlowChart AI?',
             acceptedAnswer: {
               '@type': 'Answer',
-              text: 'Yes. FlowChart AI is open-sourced under the MIT License and available on GitHub. You can self-host and modify it freely. Bring your own Groq API key to power the AI features; manual editing, saving and downloads are free.',
+              text: 'Diagram generation uses a Gemini API key. Manual editing, saving, and downloads run locally.',
             },
           },
           {

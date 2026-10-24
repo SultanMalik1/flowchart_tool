@@ -34,9 +34,9 @@ function stringifyMessageContent(content: unknown): string {
 }
 
 export function buildGatewayModelId(model: string): string {
-  const normalized = model.trim();
+  const normalized = model.trim().replace(/^(google|gemini)\//, '');
   if (!normalized) throw new Error('Flowchart model id is not configured');
-  return normalized.startsWith('groq/') ? normalized : `groq/${normalized}`;
+  return `google/${normalized}`;
 }
 
 export function buildMastraRequestMessages({

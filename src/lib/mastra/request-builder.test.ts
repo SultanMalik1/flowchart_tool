@@ -5,12 +5,12 @@ import {
 } from './request-builder';
 
 describe('Mastra request builder', () => {
-  it('normalizes Groq model ids exactly once', () => {
-    expect(buildGatewayModelId('openai/gpt-oss-120b')).toBe(
-      'groq/openai/gpt-oss-120b'
+  it('normalizes Gemini model ids to a Google provider id', () => {
+    expect(buildGatewayModelId('gemini-flash-latest')).toBe(
+      'google/gemini-flash-latest'
     );
-    expect(buildGatewayModelId('groq/llama-3.3-70b-versatile')).toBe(
-      'groq/llama-3.3-70b-versatile'
+    expect(buildGatewayModelId('google/gemini-2.5-flash')).toBe(
+      'google/gemini-2.5-flash'
     );
   });
 

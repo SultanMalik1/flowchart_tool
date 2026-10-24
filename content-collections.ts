@@ -37,41 +37,6 @@ const metas = defineCollection({
 });
 
 /**
- * Blog Author collection
- *
- * Authors are identified by their slug across all languages
- * New format: content/author/authorname.{locale}.mdx
- * Example: content/author/mksaas.mdx (default locale) and content/author/mksaas.zh.mdx (Chinese)
- *
- * For author, slug is slugAsParams
- */
-export const authors = defineCollection({
-  name: 'author',
-  directory: 'content/author',
-  include: '**/*.mdx',
-  schema: (z) => ({
-    slug: z.string(),
-    name: z.string(),
-    avatar: z.string(),
-    locale: z.string().optional().default(DEFAULT_LOCALE),
-  }),
-  transform: async (data, context) => {
-    // Get the filename from the path
-    const filePath = data._meta.path;
-    const fileName = filePath.split(path.sep).pop() || '';
-
-    // Extract locale and base from filename
-    const { locale, base } = extractLocaleAndBase(fileName);
-    // console.log(`author processed: ${fileName}, locale=${locale}`);
-
-    return {
-      ...data,
-      locale,
-    };
-  },
-});
-
-/**
  * Blog Category collection
  *
  * Categories are identified by their slug across all languages
@@ -135,7 +100,6 @@ export const posts = defineCollection({
     date: z.string().datetime(),
     published: z.boolean().default(true),
     categories: z.array(z.string()),
-    author: z.string(),
     estimatedTime: z.number().optional(), // Reading time in minutes
   }),
   transform: async (data, context) => {
@@ -149,11 +113,6 @@ export const posts = defineCollection({
     // Extract locale and base from filename
     const { locale, base } = extractLocaleAndBase(fileName);
     // console.log(`post processed: ${fileName}, base=${base}, locale=${locale}`);
-
-    // Find the author by matching slug and locale
-    const blogAuthor = context
-      .documents(authors)
-      .find((a) => a.slug === data.author && a.locale === locale);
 
     // Find categories by matching slug and locale
     const blogCategories = data.categories
@@ -182,63 +141,10 @@ export const posts = defineCollection({
     return {
       ...data,
       locale,
-      author: blogAuthor,
       categories: blogCategories,
       slug,
       slugAsParams,
       estimatedTime,
-      body: transformedData.body,
-      toc: transformedData.toc,
-    };
-  },
-});
-
-/**
- * Pages collection for policy pages like privacy-policy, terms-of-service, etc.
- *
- * New format: content/pages/page-slug.{locale}.mdx
- *
- * 1. For a page at content/pages/privacy-policy.mdx (default locale):
- * locale: en
- * slug: /pages/privacy-policy
- * slugAsParams: privacy-policy
- *
- * 2. For a page at content/pages/privacy-policy.zh.mdx (Chinese locale):
- * locale: zh
- * slug: /pages/privacy-policy
- * slugAsParams: privacy-policy
- */
-export const pages = defineCollection({
-  name: 'page',
-  directory: 'content/pages',
-  include: '**/*.mdx',
-  schema: (z) => ({
-    title: z.string(),
-    description: z.string(),
-    date: z.string().datetime(),
-    published: z.boolean().default(true),
-  }),
-  transform: async (data, context) => {
-    // Use Fumadocs transformMDX for consistent MDX processing
-    const transformedData = await transformMDX(data, context);
-
-    // Get the filename from the path
-    const filePath = data._meta.path;
-    const fileName = filePath.split(path.sep).pop() || '';
-
-    // Extract locale and base from filename
-    const { locale, base } = extractLocaleAndBase(fileName);
-    // console.log(`page processed: ${fileName}, base=${base}, locale=${locale}`);
-
-    // Create the slug and slugAsParams
-    const slug = `/pages/${base}`;
-    const slugAsParams = base;
-
-    return {
-      ...data,
-      locale,
-      slug,
-      slugAsParams,
       body: transformedData.body,
       toc: transformedData.toc,
     };
@@ -328,5 +234,5 @@ function extractLocaleAndBase(fileName: string): {
 }
 
 export default defineConfig({
-  collections: [docs, metas, authors, categories, posts, pages, releases],
+  collections: [docs, metas, categories, posts, releases],
 });

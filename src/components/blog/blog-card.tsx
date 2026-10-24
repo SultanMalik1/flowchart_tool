@@ -80,22 +80,7 @@ export default function BlogCard({ post }: BlogCardProps) {
             </div>
           </div>
 
-          {/* Author and date */}
-          <div className="mt-4 pt-4 border-t flex items-center justify-between space-x-4 text-muted-foreground">
-            <div className="flex items-center gap-2">
-              <div className="relative h-8 w-8 shrink-0">
-                {post?.author?.avatar && (
-                  <Image
-                    src={post?.author?.avatar}
-                    alt={`avatar for ${post?.author?.name}`}
-                    className="rounded-full object-cover border"
-                    fill
-                  />
-                )}
-              </div>
-              <span className="truncate text-sm">{post?.author?.name}</span>
-            </div>
-
+          <div className="mt-4 pt-4 border-t flex items-center justify-end text-muted-foreground">
             <time className="truncate text-sm" dateTime={date}>
               {date}
             </time>

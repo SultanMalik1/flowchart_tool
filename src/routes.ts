@@ -13,9 +13,6 @@ export enum Routes {
   Contact = '/contact',
   Changelog = '/changelog',
   Roadmap = 'https://mksaas.link/roadmap',
-  CookiePolicy = '/cookie',
-  PrivacyPolicy = '/privacy',
-  TermsOfService = '/terms',
 
   // app routes
   Dashboard = '/dashboard',

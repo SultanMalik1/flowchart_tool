@@ -178,24 +178,6 @@ export default async function BlogPostPage(props: BlogPostPageProps) {
         {/* right column (sidebar) */}
         <div>
           <div className="space-y-4 lg:sticky lg:top-24">
-            {/* author info */}
-            <div className="bg-muted/50 rounded-lg p-6">
-              <h2 className="text-lg font-semibold mb-4">{t('author')}</h2>
-              <div className="flex items-center gap-4">
-                <div className="relative h-8 w-8 shrink-0">
-                  {post.author?.avatar && (
-                    <Image
-                      src={post.author.avatar}
-                      alt={`avatar for ${post.author.name}`}
-                      className="rounded-full object-cover border"
-                      fill
-                    />
-                  )}
-                </div>
-                <span className="line-clamp-1">{post.author?.name}</span>
-              </div>
-            </div>
-
             {/* categories */}
             <div className="bg-muted/50 rounded-lg p-6">
               <h2 className="text-lg font-semibold mb-4">{t('categories')}</h2>

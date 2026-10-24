@@ -22,7 +22,6 @@ import {
 import {
   createNativeModel,
   getNativeModelForMode,
-  isGeminiModel,
 } from '@/lib/mastra/native-model';
 import { buildMastraRequestMessages } from '@/lib/mastra/request-builder';
 import { createMastraStreamMapper } from '@/lib/mastra/stream-protocol';
@@ -342,24 +341,12 @@ export async function POST(request: Request): Promise<Response> {
     const modelId = nativeDocument
       ? getNativeModelForMode(requestedMode)
       : getFlowchartModelForMode(requestedMode);
-    const usesGemini = isGeminiModel(modelId);
-    if (usesGemini && !process.env.GOOGLE_GENERATIVE_AI_API_KEY) {
+    if (!process.env.GOOGLE_GENERATIVE_AI_API_KEY) {
       return jsonResponse(
         {
           error: 'missing_api_key',
           message:
             'GOOGLE_GENERATIVE_AI_API_KEY is not set. Add it to .env.local and restart the dev server.',
-        },
-        500,
-        requestId
-      );
-    }
-    if (!usesGemini && !process.env.GROQ_API_KEY) {
-      return jsonResponse(
-        {
-          error: 'missing_api_key',
-          message:
-            'GROQ_API_KEY is not set. Add it to .env.local and restart the dev server.',
         },
         500,
         requestId

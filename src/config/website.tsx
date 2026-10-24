@@ -21,16 +21,9 @@ export const websiteConfig: WebsiteConfig = {
       logoLight: '/logo.png',
       logoDark: '/logo.png',
     },
-    social: {
-      github: 'https://github.com/tanchaowen84/flowchartai',
-      twitter: 'https://x.com/tanchaowen84',
-      discord: 'https://discord.gg/EhuSZNHNQh',
-    },
   },
   features: {
     enableDiscordWidget: false,
-    enableAffonsoAffiliate: false,
-    enablePromotekitAffiliate: false,
     enableDocsPage: false,
     enableAIPages: false,
   },

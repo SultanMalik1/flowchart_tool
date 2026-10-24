@@ -1,15 +1,11 @@
 import type { AiAssistantMode } from '@/lib/ai-modes';
 
 /**
- * Default Groq models. Override with the optional FLOWCHART_TEXT_MODEL /
- * FLOWCHART_IMAGE_MODEL environment variables (any Groq model id).
- *
- * - Text uses a tool-calling model.
- * - Image needs a vision model. Llama 4 Scout was removed from Groq on
- *   2026-07-17; Qwen 3.8 27B is the free-tier replacement that accepts images.
+ * Default Gemini models. Override with FLOWCHART_TEXT_MODEL or
+ * FLOWCHART_IMAGE_MODEL (a Gemini model id). Image mode needs a vision model.
  */
-export const TEXT_TO_FLOWCHART_MODEL = 'openai/gpt-oss-120b';
-export const IMAGE_TO_FLOWCHART_MODEL = 'qwen/qwen3.8-27b';
+export const TEXT_TO_FLOWCHART_MODEL = 'gemini-flash-latest';
+export const IMAGE_TO_FLOWCHART_MODEL = 'gemini-flash-latest';
 
 export function getFlowchartModelForMode(mode: AiAssistantMode): string {
   if (mode === 'image_to_flowchart') {

@@ -5,9 +5,6 @@ import {
   fontNotoSansMono,
   fontNotoSerif,
 } from '@/assets/fonts';
-import AffonsoScript from '@/components/affiliate/affonso';
-import PromotekitScript from '@/components/affiliate/promotekit';
-import { AdSense } from '@/components/analytics/adsense';
 import { TailwindIndicator } from '@/components/layout/tailwind-indicator';
 import { LlmsDiscoveryLinks } from '@/components/seo/llms-discovery-links';
 import { DeferredToaster } from '@/components/ui/deferred-toaster';
@@ -65,9 +62,6 @@ export default async function LocaleLayout({
             <DeferredToaster richColors position="top-right" offset={64} />
             <TailwindIndicator />
             <Analytics />
-            <AdSense />
-            <AffonsoScript />
-            <PromotekitScript />
           </Providers>
         </NextIntlClientProvider>
       </body>

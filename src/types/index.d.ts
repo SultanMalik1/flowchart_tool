@@ -61,8 +61,6 @@ export interface SocialConfig {
  */
 export interface FeaturesConfig {
   enableDiscordWidget?: boolean;      // Whether to enable the discord widget
-  enableAffonsoAffiliate?: boolean;   // Whether to enable affonso affiliate
-  enablePromotekitAffiliate?: boolean;   // Whether to enable promotekit affiliate
   enableDocsPage?: boolean;           // Whether to enable the docs page
   enableAIPages?: boolean;            // Whether to enable the AI pages
 }

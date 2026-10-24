@@ -20,9 +20,6 @@ function getEnabledStaticRoutes(): string[] {
     '/about',
     '/contact',
     '/changelog',
-    '/privacy',
-    '/terms',
-    '/cookie',
     '/blog',
   ];
 
@@ -66,15 +63,8 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
         priority = 0.9; // high priority for key pages
         changeFrequency = 'weekly';
       } else if (route === '/blog') {
-        priority = 0.8; // high priority for blog main page
+        priority = 0.8;
         changeFrequency = 'daily';
-      } else if (
-        route.includes('/privacy') ||
-        route.includes('/terms') ||
-        route.includes('/cookie')
-      ) {
-        priority = 0.5; // lower priority for legal pages
-        changeFrequency = 'monthly';
       }
 
       return routing.locales.map((locale) => ({

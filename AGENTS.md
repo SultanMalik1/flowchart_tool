@@ -14,7 +14,7 @@ FlowchartAI runs on Next.js 15 with TypeScript and deploys to Vercel. Follow the
 - `pnpm start`: Serve the compiled build for staging checks.
 - `pnpm lint` / `pnpm format`: Run Biome checks and fix formatting.
 - `pnpm build` / `pnpm start`: Build and run the same Next.js application deployed to Vercel.
-- Local AI needs `GROQ_API_KEY` in `.env.local`. Optional overrides: `FLOWCHART_TEXT_MODEL`, `FLOWCHART_IMAGE_MODEL`, `FLOWCHART_DATA_DIR`.
+- Local AI needs `GOOGLE_GENERATIVE_AI_API_KEY` in `.env.local`. Optional overrides: `FLOWCHART_TEXT_MODEL`, `FLOWCHART_IMAGE_MODEL`, `FLOWCHART_NATIVE_TEXT_MODEL`, `FLOWCHART_DATA_DIR`.
 
 ## Coding Style & Naming Conventions
 - TypeScript everywhere; add explicit return types on exported helpers.
