@@ -39,7 +39,7 @@ For UML class diagrams, use diagramType:'uml', explicit coordinates and editable
 export const drawioSkill = createSkill({
   name: 'drawio-native',
   description:
-    'Native draw.io shapes, groups, connectors, diagram families and complex local edits for FlowchartAI.',
+    'Native draw.io shapes, groups, connectors, diagram families and complex local edits for FlowPilot.',
   instructions:
     'Use the provided relevant references first. Read another bundled reference only when the request needs it, using skill_read with skillName:drawio-native and path:references/<name>.md. These guides describe our generate_flowchart graph/patch contract. CURRENT DOCUMENT is the only authority for current IDs, parents, geometry, styles and revision. Examples explain patterns; they are not user business rules. No MCP tools, routing:libavoid or postLayout parameters are available. After a successful canvas command, stop.',
   references: drawioReferences,

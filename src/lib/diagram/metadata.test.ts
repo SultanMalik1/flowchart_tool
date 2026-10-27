@@ -179,7 +179,7 @@ describe('flowchart AI metadata persistence', () => {
     const restored = deriveFlowchartAiMetadataFromElements(
       [
         {
-          id: 'flowchartai:main:node:A',
+          id: 'flowpilot:main:node:A',
           customData: {
             aiGenerated: true,
             diagramId: 'main',
@@ -218,7 +218,7 @@ describe('flowchart AI metadata persistence', () => {
   it('keeps Undo, save, reload, and the next patch on the same revision', () => {
     const undoElements = [
       {
-        id: 'flowchartai:main:node:A',
+        id: 'flowpilot:main:node:A',
         customData: {
           aiGenerated: true,
           diagramId: 'main',
@@ -230,7 +230,7 @@ describe('flowchart AI metadata persistence', () => {
         },
       },
       {
-        id: 'flowchartai:main:node:B',
+        id: 'flowpilot:main:node:B',
         customData: {
           aiGenerated: true,
           diagramId: 'main',
@@ -241,7 +241,7 @@ describe('flowchart AI metadata persistence', () => {
         },
       },
       {
-        id: 'flowchartai:main:edge:A__B',
+        id: 'flowpilot:main:edge:A__B',
         customData: {
           aiGenerated: true,
           diagramId: 'main',

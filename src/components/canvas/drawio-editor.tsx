@@ -105,7 +105,7 @@ export default function DrawioEditor({
           action: 'load',
           xml: initialDocument.xml,
           autosave: 1,
-          title: 'FlowchartAI',
+          title: 'FlowPilot',
         });
       if (data?.event === 'load') {
         loaded = true;
@@ -133,7 +133,7 @@ export default function DrawioEditor({
   return (
     <div className="relative h-full min-h-0 w-full">
       <iframe
-        key={attempt}
+        key={`${attempt}:${initialDocument.documentId}`}
         ref={iframe}
         title="Diagram editor"
         className="h-full w-full border-0"

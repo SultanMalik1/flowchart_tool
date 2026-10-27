@@ -60,7 +60,7 @@ function parseArgs(argv: string[]): CliOptions {
 
   if (!normalizedBaseUrl) {
     throw new Error(
-      'Missing base URL. Pass --base-url https://flowchartai.org or set NEXT_PUBLIC_BASE_URL.'
+      'Missing base URL. Pass --base-url https://example.com or set NEXT_PUBLIC_BASE_URL.'
     );
   }
 
@@ -74,7 +74,7 @@ function parseArgs(argv: string[]): CliOptions {
 function printHelp(): void {
   console.log(
     [
-      'Usage: pnpm exec tsx scripts/submit-indexnow.ts --base-url https://flowchartai.org [--dry-run]',
+      'Usage: pnpm exec tsx scripts/submit-indexnow.ts --base-url https://example.com [--dry-run]',
       '',
       'Options:',
       '  --base-url <url>     Site base URL used for host and keyLocation.',
@@ -95,7 +95,7 @@ function getKeyLocation(baseUrl: string): string {
 async function fetchText(url: string): Promise<FetchResult> {
   const response = await fetch(url, {
     headers: {
-      'user-agent': 'flowchartai-indexnow-submit/1.0',
+      'user-agent': 'flowpilot-indexnow-submit/1.0',
     },
     redirect: 'follow',
   });

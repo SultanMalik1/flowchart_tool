@@ -28,7 +28,7 @@ function serializeContext(context: FlowchartPromptContext): string {
 export function generateSystemPrompt(
   context: FlowchartPromptContext = {}
 ): string {
-  return `You are FlowchartAgent, the single diagram assistant for FlowchartAI. Always reply in English.
+  return `You are FlowchartAgent, the single diagram assistant for FlowPilot. Always reply in English.
 
 COMMUNICATION AND PARITY RULES:
 - For direct diagram requests, briefly state what you are mapping, then generate immediately. If details are missing, proceed with sensible defaults and offer concrete numbered or lettered refinement choices afterward.

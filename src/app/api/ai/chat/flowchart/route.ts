@@ -1,5 +1,4 @@
 import { randomUUID } from 'node:crypto';
-import { getFlowchartModelForMode } from '@/lib/ai-models';
 import type { AiAssistantMode } from '@/lib/ai-modes';
 import { prepareDrawioCommand } from '@/lib/drawio/command';
 import { drawioDocumentSchema } from '@/lib/drawio/contracts';
@@ -9,16 +8,11 @@ import {
   createDrawioAgent,
   nativeAgentInstructions,
 } from '@/lib/mastra/drawio-agent';
-import { flowchartAgent } from '@/lib/mastra/flowchart-agent';
 import {
   classifyFlowchartError,
   getSafeErrorName,
   logFlowchartDiagnostic,
 } from '@/lib/mastra/flowchart-diagnostics';
-import {
-  generateImageModeInstructions,
-  generateSystemPrompt,
-} from '@/lib/mastra/flowchart-prompts';
 import {
   createNativeModel,
   getNativeModelForMode,
@@ -84,23 +78,6 @@ function getRequestedMode(
   return countImagesInLatestUserMessage(messages) === 0
     ? TEXT_MODE
     : IMAGE_MODE;
-}
-
-function buildAgentInstructions(
-  mode: AiAssistantMode,
-  aiContext: Record<string, any> | undefined
-): string {
-  const context = {
-    requestedMode: aiContext?.requestedMode,
-    selectedDiagramId: aiContext?.selectedDiagramId,
-    targetResolution: aiContext?.targetResolution,
-    flowchartAi: aiContext?.flowchartAi,
-    canvasSnapshot: aiContext?.canvasSnapshot,
-    lastMermaid: aiContext?.lastMermaid,
-  };
-  return mode === IMAGE_MODE
-    ? generateImageModeInstructions(context)
-    : generateSystemPrompt(context);
 }
 
 function createAgentStreamResponse(
@@ -319,10 +296,22 @@ export async function POST(request: Request): Promise<Response> {
   const latestUserPrompt = extractLatestUserPrompt(body.messages);
 
   try {
-    const nativeDocument =
-      body.aiContext?.editorKind === 'drawio'
-        ? drawioDocumentSchema.parse(body.aiContext.nativeDocument)
-        : null;
+    if (
+      body.aiContext?.editorKind !== 'drawio' ||
+      !body.aiContext.nativeDocument
+    ) {
+      return jsonResponse(
+        {
+          error: 'drawio_document_required',
+          message: 'The current draw.io document is required.',
+        },
+        400,
+        requestId
+      );
+    }
+    const nativeDocument = drawioDocumentSchema.parse(
+      body.aiContext.nativeDocument
+    );
     const nativeSelection: string[] = Array.isArray(
       body.aiContext?.nativeSelection
     )
@@ -330,17 +319,17 @@ export async function POST(request: Request): Promise<Response> {
           (id: unknown): id is string => typeof id === 'string'
         )
       : [];
-    const agent = nativeDocument
-      ? createDrawioAgent(nativeDocument, nativeSelection, latestUserPrompt)
-      : flowchartAgent;
+    const agent = createDrawioAgent(
+      nativeDocument,
+      nativeSelection,
+      latestUserPrompt
+    );
     const agentMessages = buildMastraRequestMessages({
       mode: requestedMode,
       messages: body.messages,
       requestedMode: body.aiContext?.requestedMode,
     });
-    const modelId = nativeDocument
-      ? getNativeModelForMode(requestedMode)
-      : getFlowchartModelForMode(requestedMode);
+    const modelId = getNativeModelForMode(requestedMode);
     if (!process.env.GOOGLE_GENERATIVE_AI_API_KEY) {
       return jsonResponse(
         {
@@ -364,23 +353,15 @@ export async function POST(request: Request): Promise<Response> {
     });
     const output = await agent.stream(agentMessages as any, {
       model: model as any,
-      instructions: nativeDocument
-        ? nativeAgentInstructions(
-            nativeDocument,
-            nativeSelection,
-            latestUserPrompt
-          )
-        : buildAgentInstructions(requestedMode, body.aiContext),
-      maxSteps: nativeDocument ? 5 : 2,
+      instructions: nativeAgentInstructions(
+        nativeDocument,
+        nativeSelection,
+        latestUserPrompt
+      ),
+      maxSteps: 5,
       toolChoice: 'auto',
       abortSignal: request.signal,
-      modelSettings: nativeDocument
-        ? nativeModelSettings(modelId)
-        : {
-            temperature: requestedMode === IMAGE_MODE ? 0.3 : 0.7,
-            maxOutputTokens: 4096,
-            maxRetries: 1,
-          },
+      modelSettings: nativeModelSettings(modelId),
     });
 
     return createAgentStreamResponse(
@@ -388,7 +369,7 @@ export async function POST(request: Request): Promise<Response> {
       request.signal,
       requestId,
       startedAt,
-      Boolean(nativeDocument),
+      true,
       nativeDocument
     );
   } catch (error) {

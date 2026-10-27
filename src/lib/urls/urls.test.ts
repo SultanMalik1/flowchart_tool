@@ -5,21 +5,21 @@ describe('resolveBaseUrl', () => {
   it('uses the Vercel deployment URL for preview deployments', () => {
     expect(
       resolveBaseUrl({
-        NEXT_PUBLIC_BASE_URL: 'https://flowchartai.org',
+        NEXT_PUBLIC_BASE_URL: 'https://example.com',
         VERCEL_ENV: 'preview',
-        VERCEL_URL: 'flowchartai-git-mastra.example.vercel.app',
+        VERCEL_URL: 'flowpilot-git.example.vercel.app',
       })
-    ).toBe('https://flowchartai-git-mastra.example.vercel.app');
+    ).toBe('https://flowpilot-git.example.vercel.app');
   });
 
   it('keeps the configured public URL in production', () => {
     expect(
       resolveBaseUrl({
-        NEXT_PUBLIC_BASE_URL: 'https://flowchartai.org',
+        NEXT_PUBLIC_BASE_URL: 'https://example.com',
         VERCEL_ENV: 'production',
-        VERCEL_URL: 'flowchartai-production.example.vercel.app',
+        VERCEL_URL: 'flowpilot-production.example.vercel.app',
       })
-    ).toBe('https://flowchartai.org');
+    ).toBe('https://example.com');
   });
 
   it('falls back to the local port without a configured URL', () => {

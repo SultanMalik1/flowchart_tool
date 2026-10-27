@@ -9,14 +9,15 @@
 }
 .workspace [data-embedded-assistant] {
   box-shadow: none;
-  background: var(--muted);
+  background: #ffffff;
+  color: #000000;
 }
-.workspace [data-embedded-assistant] [class~="bg-white"],
-.workspace [data-embedded-assistant] [class~="bg-gray-100"] {
-  background: transparent;
-}
-.workspace [data-embedded-assistant] [class~="text-gray-900"] {
-  color: var(--foreground);
+.workspace [data-embedded-assistant] [class~="text-gray-900"],
+.workspace [data-embedded-assistant] [class~="text-gray-600"],
+.workspace [data-embedded-assistant] [class~="text-gray-500"],
+.workspace [data-embedded-assistant] [class~="text-foreground"],
+.workspace [data-embedded-assistant] [class~="text-muted-foreground"] {
+  color: #000000;
 }
 .workspace [data-embedded-assistant] [class~="border-gray-200"],
 .workspace [data-embedded-assistant] [class~="border-gray-100"] {
@@ -32,8 +33,8 @@
 }
 .workspace [data-embedded-assistant] button[aria-label="Send message"] {
   border-radius: 3px;
-  background: var(--primary);
-  color: var(--primary-foreground);
+  background: #76a923;
+  color: #000000;
 }
 .workspace
   [data-embedded-assistant]

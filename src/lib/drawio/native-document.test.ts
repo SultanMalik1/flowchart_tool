@@ -158,6 +158,20 @@ describe('saved editor dispatch', () => {
   });
 });
 
+it('loads an uncompressed mxfile and rejects a compressed diagrams.net file', () => {
+  const xml =
+    '<mxfile host="FlowPilot"><diagram id="page-1" name="Page-1"><mxGraphModel><root><mxCell id="0"/><mxCell id="1" parent="0"/></root></mxGraphModel></diagram></mxfile>';
+  expect(validateDrawioXml(xml)).toContain('<mxGraphModel');
+  expect(() =>
+    validateDrawioXml(
+      '<mxfile><diagram id="page-1" name="Page-1">7Zxcompressed</diagram></mxfile>'
+    )
+  ).toThrow('Compressed or empty native diagram; expand XML before editing');
+  expect(() =>
+    validateDrawioXml('<svg xmlns="http://www.w3.org/2000/svg"></svg>')
+  ).toThrow('Expected native mxGraphModel or uncompressed mxfile');
+});
+
 it('rejects shorthand geometry that cannot render native editable cells', () => {
   expect(() =>
     validateDrawioXml(

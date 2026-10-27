@@ -50,10 +50,6 @@ const nextConfig: NextConfig = {
         protocol: 'https',
         hostname: 'html.tailus.io',
       },
-      {
-        protocol: 'https',
-        hostname: 'cdn.flowchartai.org',
-      },
     ],
   },
 
@@ -65,33 +61,43 @@ const nextConfig: NextConfig = {
   async redirects() {
     return [
       {
-        source: '/blog/flowchart-symbols',
-        destination: '/blog/flowchart-symbols-guide',
-        permanent: true,
-      },
-      {
-        source: '/:locale/blog/flowchart-symbols',
-        destination: '/:locale/blog/flowchart-symbols-guide',
-        permanent: true,
-      },
-      {
-        source: '/tools/ai-flowchart-generator',
+        source: '/blog',
         destination: '/',
         permanent: true,
       },
       {
-        source: '/:locale/tools/ai-flowchart-generator',
-        destination: '/:locale',
-        permanent: true,
-      },
-      {
-        source: '/tools/flowchart-maker-ai',
+        source: '/blog/:path*',
         destination: '/',
         permanent: true,
       },
       {
-        source: '/:locale/tools/flowchart-maker-ai',
-        destination: '/:locale',
+        source: '/:locale/blog',
+        destination: '/',
+        permanent: true,
+      },
+      {
+        source: '/:locale/blog/:path*',
+        destination: '/',
+        permanent: true,
+      },
+      {
+        source: '/docs',
+        destination: '/',
+        permanent: true,
+      },
+      {
+        source: '/docs/:path*',
+        destination: '/',
+        permanent: true,
+      },
+      {
+        source: '/:locale/docs',
+        destination: '/',
+        permanent: true,
+      },
+      {
+        source: '/:locale/docs/:path*',
+        destination: '/',
         permanent: true,
       },
     ];

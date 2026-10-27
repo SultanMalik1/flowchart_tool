@@ -25,7 +25,7 @@ export interface CanvasChatSession {
   messages: CanvasChatMessage[];
 }
 
-const STORAGE_PREFIX = 'flowchartai:canvas-chat';
+const STORAGE_PREFIX = 'flowpilot:canvas-chat';
 const UNSAVED_FLOWCHART_KEY = 'unsaved';
 const IMAGE_ATTACHMENT_PLACEHOLDER = '[Image attachment]';
 

@@ -10,8 +10,8 @@ afterEach(() => {
 function production(): void {
   vi.stubEnv('NODE_ENV', 'production');
   vi.stubEnv('VERCEL_ENV', 'production');
-  vi.stubEnv('NEXT_PUBLIC_BASE_URL', 'https://flowchartai.org');
-  vi.stubEnv('NEXT_PUBLIC_PLAUSIBLE_DOMAIN', 'flowchartai.org');
+  vi.stubEnv('NEXT_PUBLIC_BASE_URL', 'https://example.com');
+  vi.stubEnv('NEXT_PUBLIC_PLAUSIBLE_DOMAIN', 'example.com');
   vi.stubEnv(
     'NEXT_PUBLIC_PLAUSIBLE_SCRIPT',
     'https://myplausible.app/js/script.js'
@@ -46,8 +46,8 @@ describe('server delivery', () => {
     });
     expect(JSON.parse(options.body)).toEqual({
       name: EVENTS.processingStarted,
-      domain: 'flowchartai.org',
-      url: 'https://flowchartai.org/canvas',
+      domain: 'example.com',
+      url: 'https://example.com/canvas',
       props: { mode: 'text_to_flowchart' },
     });
   });

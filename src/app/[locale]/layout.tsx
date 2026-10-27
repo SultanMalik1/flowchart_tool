@@ -5,8 +5,6 @@ import {
   fontNotoSansMono,
   fontNotoSerif,
 } from '@/assets/fonts';
-import { TailwindIndicator } from '@/components/layout/tailwind-indicator';
-import { LlmsDiscoveryLinks } from '@/components/seo/llms-discovery-links';
 import { DeferredToaster } from '@/components/ui/deferred-toaster';
 import { routing } from '@/i18n/routing';
 import { cn } from '@/lib/utils';
@@ -42,9 +40,6 @@ export default async function LocaleLayout({
 
   return (
     <html suppressHydrationWarning lang={locale}>
-      <head>
-        <LlmsDiscoveryLinks />
-      </head>
       <body
         suppressHydrationWarning
         className={cn(
@@ -60,7 +55,6 @@ export default async function LocaleLayout({
             {children}
 
             <DeferredToaster richColors position="top-right" offset={64} />
-            <TailwindIndicator />
             <Analytics />
           </Providers>
         </NextIntlClientProvider>

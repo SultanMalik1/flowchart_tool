@@ -33,7 +33,7 @@ export function trackFlowchartEvent(
 ): void {
   if (
     typeof window === 'undefined' ||
-    window.location.origin !== 'https://flowchartai.org' ||
+    window.location.origin !== process.env.NEXT_PUBLIC_BASE_URL ||
     !isProductionAnalytics({
       NODE_ENV: process.env.NODE_ENV,
       NEXT_PUBLIC_BASE_URL: process.env.NEXT_PUBLIC_BASE_URL,
@@ -64,8 +64,8 @@ export function trackFlowchartEvent(
           [
             JSON.stringify({
               name: event,
-              domain: 'flowchartai.org',
-              url: 'https://flowchartai.org/pricing',
+              domain: process.env.NEXT_PUBLIC_PLAUSIBLE_DOMAIN,
+              url: `${process.env.NEXT_PUBLIC_BASE_URL}/pricing`,
               props: sanitizeEventProperties(properties),
             }),
           ],

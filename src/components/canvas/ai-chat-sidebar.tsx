@@ -159,7 +159,7 @@ type AssistantResponsePhase = AssistantPhase;
 
 function markFlowchartPerformance(name: string): void {
   if (typeof performance !== 'undefined') {
-    performance.mark(`flowchartai:${name}`);
+    performance.mark(`flowpilot:${name}`);
   }
 }
 
@@ -989,7 +989,9 @@ const AiChatSidebar: React.FC<AiChatSidebarProps> = ({
       (selectedImages.length === 0 &&
         !input.trim() &&
         !canvasContextRef.current.homepageImage) ||
-      isLoading
+      isLoading ||
+      !nativeEditor ||
+      !isAPIReady
     ) {
       return;
     }
@@ -1661,7 +1663,7 @@ const AiChatSidebar: React.FC<AiChatSidebarProps> = ({
     <div
       className={
         embedded
-          ? `relative h-full w-full min-h-0 bg-muted text-foreground ${isOpen ? '' : 'hidden'} ${className || ''}`
+          ? `relative h-full w-full min-h-0 bg-white text-black ${isOpen ? '' : 'hidden'} ${className || ''}`
           : `fixed top-0 right-0 z-40 h-full w-screen max-w-full bg-white shadow-lg transition-transform duration-300 ease-in-out md:w-[var(--sidebar-width)] ${
               isOpen ? 'translate-x-0' : 'translate-x-full'
             }`
@@ -2024,7 +2026,11 @@ const AiChatSidebar: React.FC<AiChatSidebarProps> = ({
                     size="icon"
                     className="h-8 w-8 shrink-0 rounded-full bg-blue-600 text-white hover:bg-blue-700"
                     onClick={handleSendMessage}
-                    disabled={!input.trim() && selectedImages.length === 0}
+                    disabled={
+                      (!input.trim() && selectedImages.length === 0) ||
+                      !nativeEditor ||
+                      !isAPIReady
+                    }
                     aria-label="Send message"
                     title="Send"
                   >

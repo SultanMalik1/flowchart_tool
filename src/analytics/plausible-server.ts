@@ -49,8 +49,8 @@ export async function sendServerEvent(
         headers: { 'Content-Type': 'application/json', ...visitor },
         body: JSON.stringify({
           name: event,
-          domain: 'flowchartai.org',
-          url: `https://flowchartai.org${eventPath(event)}`,
+          domain: process.env.NEXT_PUBLIC_PLAUSIBLE_DOMAIN,
+          url: `${process.env.NEXT_PUBLIC_BASE_URL}${eventPath(event)}`,
           props: sanitizeEventProperties(properties),
         }),
         signal: AbortSignal.timeout(1500),

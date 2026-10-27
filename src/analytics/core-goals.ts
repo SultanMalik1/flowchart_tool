@@ -1,8 +1,8 @@
 /**
  * [INPUT] Confirmed product milestones and finite context values.
  * [OUTPUT] English Plausible goals, production gate and safe properties.
- * [POS] Shared FlowchartAI analytics contract, matching SpriteFuse semantics.
- * [UPDATE] Keep dashboard Goals, sender tests and README.md in sync.
+ * [POS] Shared analytics contract for production milestones.
+ * [UPDATE] Keep sender tests in sync with the production gate.
  */
 export const EVENTS = {
   registrationCompleted: 'Registration Completed',
@@ -51,8 +51,10 @@ export function isProductionAnalytics(
   return (
     env.NODE_ENV === 'production' &&
     (!env.VERCEL_ENV || env.VERCEL_ENV === 'production') &&
-    env.NEXT_PUBLIC_BASE_URL === 'https://flowchartai.org' &&
-    env.NEXT_PUBLIC_PLAUSIBLE_DOMAIN === 'flowchartai.org' &&
+    !!env.NEXT_PUBLIC_BASE_URL?.startsWith('https://') &&
+    !env.NEXT_PUBLIC_BASE_URL.includes('localhost') &&
+    env.NEXT_PUBLIC_BASE_URL ===
+      `https://${env.NEXT_PUBLIC_PLAUSIBLE_DOMAIN}` &&
     !!env.NEXT_PUBLIC_PLAUSIBLE_SCRIPT
   );
 }

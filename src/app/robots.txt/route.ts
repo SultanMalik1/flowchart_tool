@@ -1,13 +1,7 @@
 import { getBaseUrl } from '../../lib/urls/urls';
 import { buildRobotsTxt } from './robots';
 
-const marketingAllows = [
-  'Allow: /',
-  'Allow: /pricing',
-  'Allow: /blog',
-  'Allow: /llms.txt',
-  'Allow: /llms-full.txt',
-];
+const marketingAllows = ['Allow: /'];
 
 const userAreas = [
   'Disallow: /api/',

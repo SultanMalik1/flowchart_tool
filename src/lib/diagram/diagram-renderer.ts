@@ -201,7 +201,7 @@ export function elementIdForEntity(
   entityType: EntityType,
   semanticId: string
 ): string {
-  return `flowchartai:${diagramId}:${entityType}:${semanticId}`;
+  return `flowpilot:${diagramId}:${entityType}:${semanticId}`;
 }
 
 function nodeElementType(node: DiagramNode): string {

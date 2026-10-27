@@ -10,9 +10,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { Input } from '@/components/ui/input';
-import type { FlowchartData } from '@/hooks/use-flowchart';
 import { useIsMobile } from '@/hooks/use-mobile';
-import { useNativeDiagramSave } from '@/hooks/use-native-diagram-save';
 import {
   type AiAssistantMode,
   DEFAULT_AI_ASSISTANT_MODE,
@@ -22,7 +20,6 @@ import {
   type DrawioCommand,
   type DrawioDocument,
   EMPTY_DRAWIO_XML,
-  drawioDocumentSchema,
 } from '@/lib/drawio/contracts';
 import {
   automaticDiagramTitle,
@@ -32,7 +29,10 @@ import type {
   DrawioBridge,
   NativeEditorView,
 } from '@/lib/drawio/editor-bridge';
-import { readNativeCells } from '@/lib/drawio/native-document';
+import {
+  readNativeCells,
+  validateDrawioXml,
+} from '@/lib/drawio/native-document';
 import {
   type DiagramTaskStatus,
   taskStatusLabel,
@@ -44,7 +44,6 @@ import {
   Home,
   Loader2,
   Map,
-  MessageSquare,
   Minus,
   MoreHorizontal,
   MousePointer2,
@@ -54,6 +53,7 @@ import {
   Shapes,
   Type,
   Undo2,
+  Upload,
 } from 'lucide-react';
 import dynamic from 'next/dynamic';
 import { useRouter } from 'next/navigation';
@@ -62,7 +62,6 @@ import DrawioEditor from './drawio-editor';
 import NativeStylePanel from './native-style-panel';
 import styles from './native-workspace.module.css';
 import ResizableDivider from './resizable-divider';
-import { SaveButton } from './save-button';
 
 const AiChatSidebar = dynamic(() => import('./ai-chat-sidebar'), {
   ssr: false,
@@ -113,14 +112,21 @@ async function pngFromSvg(svg: string): Promise<Blob> {
   }
 }
 
-export default function NativeDiagramWorkspace({
-  flowchartId,
-  initialFlowchart,
-}: { flowchartId?: string; initialFlowchart?: FlowchartData | null }) {
+function emptyDiagram(): DrawioDocument {
+  return {
+    editorKind: 'drawio',
+    formatVersion: 1,
+    documentId: crypto.randomUUID(),
+    revision: 0,
+    diagramType: 'flowchart',
+    xml: EMPTY_DRAWIO_XML,
+  };
+}
+
+export default function NativeDiagramWorkspace() {
   const mobile = useIsMobile();
   const router = useRouter();
-  const [fileId, setFileId] = useState(flowchartId);
-  const [title, setTitle] = useState(initialFlowchart?.title || 'Untitled');
+  const [title, setTitle] = useState('Untitled');
   const currentTitle = useRef(title);
   currentTitle.current = title;
   const userNamedTitle = useRef(!isUnnamedDiagram(title));
@@ -141,25 +147,10 @@ export default function NativeDiagramWorkspace({
     outcome: 'ready',
   });
   const [, setHistory] = useState(0);
-  const [exportError, setExportError] = useState<string | null>(null);
+  const [fileError, setFileError] = useState<string | null>(null);
   const [exporting, setExporting] = useState(false);
-  const initial = useMemo<DrawioDocument>(() => {
-    if (initialFlowchart?.content) {
-      const parsed = drawioDocumentSchema.safeParse(
-        JSON.parse(initialFlowchart.content)
-      );
-      if (parsed.success) return parsed.data;
-    }
-    return {
-      editorKind: 'drawio',
-      formatVersion: 1,
-      documentId: crypto.randomUUID(),
-      revision: 0,
-      diagramType: 'flowchart',
-      xml: EMPTY_DRAWIO_XML,
-    };
-  }, [initialFlowchart?.id]);
-  const latestDocument = useRef(initial);
+  const [diagram, setDiagram] = useState<DrawioDocument>(emptyDiagram);
+  const importInput = useRef<HTMLInputElement>(null);
   const [auto, setAuto] = useState<{
     input: string;
     generate: boolean;
@@ -172,13 +163,7 @@ export default function NativeDiagramWorkspace({
     image: null,
   });
   const metadata = useMemo(emptyFlowchartAiMetadata, []);
-  const save = useNativeDiagramSave(bridge, fileId, title, setFileId);
-  const changeHandler = useRef(save.markChanged);
-  changeHandler.current = save.markChanged;
-  const onChange = useCallback((document: DrawioDocument): void => {
-    latestDocument.current = document;
-    changeHandler.current();
-  }, []);
+  const onChange = useCallback((_next: DrawioDocument): void => {}, []);
   const onHistory = useCallback(() => setHistory((n) => n + 1), []);
   const onDiagramTitle = useCallback(
     (suggested: string, operation: DrawioCommand['operation']): void => {
@@ -191,7 +176,6 @@ export default function NativeDiagramWorkspace({
       if (!next) return;
       currentTitle.current = next;
       setTitle(next);
-      changeHandler.current();
     },
     []
   );
@@ -226,7 +210,7 @@ export default function NativeDiagramWorkspace({
     )
       trackFlowchartEvent(EVENTS.downloadClicked, { editor: 'drawio', format });
     setExporting(true);
-    setExportError(null);
+    setFileError(null);
     try {
       if (format === 'drawio')
         download(
@@ -243,11 +227,38 @@ export default function NativeDiagramWorkspace({
         );
       }
     } catch (error) {
-      setExportError(
-        error instanceof Error ? error.message : 'Download failed'
-      );
+      setFileError(error instanceof Error ? error.message : 'Download failed');
     } finally {
       setExporting(false);
+    }
+  };
+  const importDiagram = async (file: File): Promise<void> => {
+    const name = file.name.toLowerCase();
+    if (
+      name.endsWith('.svg') ||
+      name.endsWith('.png') ||
+      file.type === 'image/svg+xml' ||
+      file.type === 'image/png'
+    ) {
+      setFileError('SVG and PNG cannot be imported.');
+      return;
+    }
+    try {
+      const xml = validateDrawioXml(await file.text());
+      setDiagram({
+        editorKind: 'drawio',
+        formatVersion: 1,
+        documentId: crypto.randomUUID(),
+        revision: 0,
+        diagramType: 'flowchart',
+        xml,
+      });
+      setBridge(null);
+      setFileError(null);
+    } catch (error) {
+      setFileError(
+        error instanceof Error ? error.message : 'Could not import this file'
+      );
     }
   };
   const zoomPercent = Math.round(view.zoom * 100);
@@ -303,18 +314,20 @@ export default function NativeDiagramWorkspace({
       className={`${styles.workspace} flex h-screen w-screen flex-col overflow-hidden bg-muted text-foreground`}
       data-native-workspace
     >
-      <header className="flex min-h-12 flex-wrap items-center gap-2 border-b px-3 py-1.5">
+      <header className="flex min-h-12 flex-wrap items-center gap-2 border-b-4 border-[#76A923] bg-white px-3 py-1.5 text-black [&_button]:text-black [&_button:hover]:text-black">
         <Button
           size="icon"
           variant="ghost"
           aria-label="Home"
-          className="h-8 w-8"
+          className="h-8 w-8 text-black hover:bg-[#76A923]/15 hover:text-black"
           onClick={() => router.push('/')}
         >
           <Home className="h-4 w-4" />
         </Button>
-        <span className="hidden font-medium sm:inline">FlowchartAI</span>
-        <span className="hidden h-4 border-l sm:block" />
+        <span className="hidden font-medium text-[#76A923] sm:inline">
+          FlowPilot
+        </span>
+        <span className="hidden h-4 border-l border-black/20 sm:block" />
         <Input
           aria-label="Diagram title"
           value={title}
@@ -322,16 +335,8 @@ export default function NativeDiagramWorkspace({
             userNamedTitle.current = true;
             currentTitle.current = event.target.value;
             setTitle(event.target.value);
-            if (
-              bridge &&
-              (fileId ||
-                readNativeCells(bridge.getDocument()).some(
-                  (cell) => cell.parent && cell.parent !== '0'
-                ))
-            )
-              save.markChanged();
           }}
-          className="h-8 min-w-20 max-w-64 flex-1 border-transparent bg-transparent"
+          className="h-8 min-w-20 max-w-64 flex-1 border-transparent bg-transparent text-black"
         />
         <div className="ml-auto flex items-center gap-1">
           <Button
@@ -354,13 +359,6 @@ export default function NativeDiagramWorkspace({
           >
             <Redo2 className="h-4 w-4" />
           </Button>
-          <SaveButton
-            status={save.status}
-            onSave={save.saveNow}
-            onRetry={save.retry}
-            disabled={!bridge}
-            error={save.error}
-          />
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button variant="ghost" size="sm" disabled={!bridge || exporting}>
@@ -381,6 +379,27 @@ export default function NativeDiagramWorkspace({
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
+          <input
+            ref={importInput}
+            type="file"
+            accept=".drawio,.xml,text/xml,application/xml"
+            className="hidden"
+            onChange={(event) => {
+              const file = event.target.files?.[0];
+              event.target.value = '';
+              if (file) void importDiagram(file);
+            }}
+          />
+          <Button
+            variant="ghost"
+            size="sm"
+            className="text-black hover:bg-[#76A923]/15 hover:text-black"
+            onClick={() => importInput.current?.click()}
+          >
+            <Upload className="h-4 w-4" />
+            <span className="hidden sm:inline">Import</span>
+            <span className="sr-only sm:hidden">Import</span>
+          </Button>
           <Button
             size="icon"
             variant="ghost"
@@ -400,12 +419,12 @@ export default function NativeDiagramWorkspace({
           </Button>
         </div>
       </header>
-      {exportError && (
+      {fileError && (
         <div
           role="alert"
-          className="border-b px-4 py-2 text-sm text-destructive"
+          className="border-b bg-white px-4 py-2 text-sm text-destructive"
         >
-          {exportError}
+          {fileError}
         </div>
       )}
       <div className="flex min-h-10 flex-wrap items-center border-b">
@@ -506,7 +525,7 @@ export default function NativeDiagramWorkspace({
         <main className="flex min-w-0 flex-1 flex-col">
           <div className="relative min-h-0 flex-1 bg-background">
             <DrawioEditor
-              initialDocument={latestDocument.current}
+              initialDocument={diagram}
               onReady={setBridge}
               onChange={onChange}
               onHistory={onHistory}
@@ -525,8 +544,8 @@ export default function NativeDiagramWorkspace({
         <aside
           className={
             mobile
-              ? `absolute inset-y-0 right-0 z-20 flex w-[min(100%,360px)] flex-col border-l bg-muted ${open ? '' : 'hidden'}`
-              : `flex shrink-0 flex-col bg-muted ${open ? '' : 'hidden'}`
+              ? `absolute inset-y-0 right-0 z-20 flex w-[min(100%,360px)] flex-col border-l-4 border-[#76A923] bg-white text-black ${open ? '' : 'hidden'}`
+              : `flex shrink-0 flex-col border-l-4 border-[#76A923] bg-white text-black ${open ? '' : 'hidden'}`
           }
           style={mobile ? undefined : { width }}
           aria-label="Editing panel"
@@ -557,7 +576,6 @@ export default function NativeDiagramWorkspace({
               nativeEditor={bridge}
               isAPIReady={!!bridge}
               width={width}
-              flowchartId={fileId}
               autoInput={auto.input}
               shouldAutoGenerate={auto.generate}
               initialMode={auto.mode}
@@ -573,7 +591,6 @@ export default function NativeDiagramWorkspace({
               }}
               onTaskStatusChange={setTask}
               onDiagramTitle={onDiagramTitle}
-              onPersistDiagram={save.ensureSaved}
               onFocusChanges={() => bridge?.focusChanges()}
             />
           </div>

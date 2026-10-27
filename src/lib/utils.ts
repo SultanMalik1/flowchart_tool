@@ -21,8 +21,7 @@ interface StartFlowchartSessionParams {
 }
 
 /**
- * Prepare localStorage + navigation so canvas auto-generates via AI sidebar.
- * Pre-creates a flowchart via `/api/flowcharts` and opens it in the editor.
+ * Prepare localStorage + navigation so the canvas can auto-generate from the sidebar.
  */
 export async function startFlowchartSession({
   mode,
@@ -45,24 +44,6 @@ export async function startFlowchartSession({
     localStorage.setItem('flowchart_auto_image', JSON.stringify(imagePayload));
   } else {
     localStorage.removeItem('flowchart_auto_image');
-  }
-
-  try {
-    const response = await fetch('/api/flowcharts', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({}),
-    });
-
-    if (!response.ok) {
-      throw new Error('Failed to pre-create flowchart');
-    }
-
-    const data = (await response.json()) as { id: string };
-    router.push(`/canvas/${data.id}`);
-    return;
-  } catch (error) {
-    console.error('startFlowchartSession: pre-create failed', error);
   }
 
   router.push('/canvas');
