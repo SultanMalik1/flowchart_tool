@@ -86,11 +86,11 @@ describe('server delivery', () => {
       'user-agent': 'browser',
       'x-forwarded-for': '203.0.113.4',
     });
-    expect(await sendServerEvent(EVENTS.paymentConfirmed, {}, headers)).toBe(
+    expect(await sendServerEvent(EVENTS.processingStarted, {}, headers)).toBe(
       false
     );
     fetcher.mockRejectedValue(new Error('offline'));
-    expect(await sendServerEvent(EVENTS.paymentConfirmed, {}, headers)).toBe(
+    expect(await sendServerEvent(EVENTS.processingStarted, {}, headers)).toBe(
       false
     );
   });

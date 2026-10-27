@@ -1,7 +1,7 @@
 /**
  * [INPUT] Browser milestones, production origin and allowlisted context.
  * [OUTPUT] Best-effort Plausible events, queued until the tracker loads.
- * [POS] Browser delivery for ready, download, paywall and checkout milestones.
+ * [POS] Browser delivery for export and download milestones.
  * [UPDATE] Sync core-goals.ts and loader when tracker behavior changes.
  */
 import {
@@ -13,9 +13,7 @@ import {
 
 type BrowserEvent =
   | typeof EVENTS.exportReady
-  | typeof EVENTS.downloadClicked
-  | typeof EVENTS.paywallViewed
-  | typeof EVENTS.checkoutHandoff;
+  | typeof EVENTS.downloadClicked;
 type Plausible = {
   (event: string, options: { props: Record<string, string> }): void;
   q?: unknown[][];
@@ -40,40 +38,10 @@ export function trackFlowchartEvent(
       NEXT_PUBLIC_PLAUSIBLE_DOMAIN: process.env.NEXT_PUBLIC_PLAUSIBLE_DOMAIN,
       NEXT_PUBLIC_PLAUSIBLE_SCRIPT: process.env.NEXT_PUBLIC_PLAUSIBLE_SCRIPT,
     }) ||
-    ![
-      EVENTS.exportReady,
-      EVENTS.downloadClicked,
-      EVENTS.paywallViewed,
-      EVENTS.checkoutHandoff,
-    ].includes(event)
+    ![EVENTS.exportReady, EVENTS.downloadClicked].includes(event)
   )
     return;
   try {
-    // The existing tracker uses XHR. A beacon survives the immediate redirect
-    // to the payment provider, so checkout handoff is not lost when the page unloads.
-    if (event === EVENTS.checkoutHandoff && window.navigator?.sendBeacon) {
-      try {
-        if (window.localStorage?.getItem('plausible_ignore') === 'true') return;
-      } catch {}
-      const accepted = window.navigator.sendBeacon(
-        new URL(
-          '/api/event',
-          process.env.NEXT_PUBLIC_PLAUSIBLE_SCRIPT
-        ).toString(),
-        new Blob(
-          [
-            JSON.stringify({
-              name: event,
-              domain: process.env.NEXT_PUBLIC_PLAUSIBLE_DOMAIN,
-              url: `${process.env.NEXT_PUBLIC_BASE_URL}/pricing`,
-              props: sanitizeEventProperties(properties),
-            }),
-          ],
-          { type: 'text/plain' }
-        )
-      );
-      if (accepted) return;
-    }
     if (!window.plausible) {
       const queue: Plausible = (...args) => {
         queue.q?.push(args);
@@ -83,6 +51,6 @@ export function trackFlowchartEvent(
     }
     window.plausible(event, { props: sanitizeEventProperties(properties) });
   } catch {
-    // Analytics must never block an export or checkout.
+    // Analytics must never block an export.
   }
 }

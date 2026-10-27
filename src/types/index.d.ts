@@ -8,9 +8,6 @@ export type WebsiteConfig = {
   features: FeaturesConfig;
   analytics: AnalyticsConfig;
   i18n: I18nConfig;
-  blog: BlogConfig;
-  mail: MailConfig;
-  newsletter: NewsletterConfig;
 };
 
 /**
@@ -79,30 +76,6 @@ export interface AnalyticsConfig {
 export interface I18nConfig {
   defaultLocale: string;              // The default locale of the website
   locales: Record<string, { flag?: string; name: string }>; // The locales of the website
-}
-
-/**
- * Blog configuration
- */
-export interface BlogConfig {
-  paginationSize: number;            // Number of posts per page
-  relatedPostsSize: number;          // Number of related posts to show
-}
-
-/**
- * Mail configuration
- */
-export interface MailConfig {
-  provider: 'resend';                // The email provider, only resend is supported for now
-  fromEmail?: string;                // The email address to send from
-  supportEmail?: string;             // The email address to send support emails to
-}
-
-/**
- * Newsletter configuration
- */
-export interface NewsletterConfig {
-  provider: 'resend';                 // The newsletter provider, only resend is supported for now
 }
 
 /**

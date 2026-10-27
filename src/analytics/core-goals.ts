@@ -9,22 +9,17 @@ export const EVENTS = {
   processingStarted: 'Flowchart Processing Started',
   exportReady: 'Flowchart Export Ready',
   downloadClicked: 'Download Clicked',
-  paywallViewed: 'Paywall Viewed',
-  checkoutHandoff: 'Checkout Handoff',
-  paymentConfirmed: 'Payment Confirmed',
 } as const;
 
 export const CORE_GOALS = Object.values(EVENTS);
 export type CoreEvent = (typeof CORE_GOALS)[number];
 export interface EventProperties {
-  source?: 'paywall' | 'pricing';
   mode?: 'text_to_flowchart' | 'image_to_flowchart';
   editor?: 'drawio' | 'excalidraw';
   format?: 'png' | 'svg' | 'drawio' | 'excalidraw';
 }
 
 const PROPERTY_VALUES = {
-  source: ['paywall', 'pricing'],
   mode: ['text_to_flowchart', 'image_to_flowchart'],
   editor: ['drawio', 'excalidraw'],
   format: ['png', 'svg', 'drawio', 'excalidraw'],
@@ -61,7 +56,5 @@ export function isProductionAnalytics(
 
 export function eventPath(event: CoreEvent): string {
   if (event === EVENTS.registrationCompleted) return '/auth/login';
-  if (event === EVENTS.checkoutHandoff || event === EVENTS.paymentConfirmed)
-    return '/pricing';
   return '/canvas';
 }

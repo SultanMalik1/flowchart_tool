@@ -40,16 +40,4 @@ export const websiteConfig: WebsiteConfig = {
       },
     },
   },
-  blog: {
-    paginationSize: 6,
-    relatedPostsSize: 3,
-  },
-  mail: {
-    provider: 'resend',
-    fromEmail: 'FlowPilot <flowpilot@example.com>',
-    supportEmail: 'FlowPilot <flowpilot@example.com>',
-  },
-  newsletter: {
-    provider: 'resend',
-  },
 };

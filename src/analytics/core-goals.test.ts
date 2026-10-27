@@ -19,9 +19,6 @@ describe('the operating goals', () => {
       'Flowchart Processing Started',
       'Flowchart Export Ready',
       'Download Clicked',
-      'Paywall Viewed',
-      'Checkout Handoff',
-      'Payment Confirmed',
     ]);
   });
 
@@ -31,7 +28,6 @@ describe('the operating goals', () => {
         mode: 'image_to_flowchart',
         editor: 'drawio',
         format: 'png',
-        source: 'paywall',
         prompt: 'private prompt',
         email: 'private@example.com',
         userId: '123',
@@ -41,7 +37,6 @@ describe('the operating goals', () => {
       mode: 'image_to_flowchart',
       editor: 'drawio',
       format: 'png',
-      source: 'paywall',
     });
     expect(sanitizeEventProperties({ source: 'private-user-id' })).toEqual({});
   });
@@ -78,10 +73,10 @@ describe('the operating goals', () => {
     );
     const browser = { location: { origin: 'https://example.com' } } as any;
     vi.stubGlobal('window', browser);
-    trackFlowchartEvent(EVENTS.paywallViewed);
+    trackFlowchartEvent(EVENTS.exportReady);
     expect(browser.plausible.q).toHaveLength(1);
     expect(Array.from(browser.plausible.q[0])).toEqual([
-      EVENTS.paywallViewed,
+      EVENTS.exportReady,
       { props: {} },
     ]);
   });
@@ -105,30 +100,4 @@ describe('the operating goals', () => {
     ).not.toThrow();
   });
 
-  it('uses a beacon for checkout so navigating away does not lose the event', async () => {
-    vi.stubEnv('NODE_ENV', 'production');
-    vi.stubEnv('NEXT_PUBLIC_BASE_URL', 'https://example.com');
-    vi.stubEnv('NEXT_PUBLIC_PLAUSIBLE_DOMAIN', 'example.com');
-    vi.stubEnv(
-      'NEXT_PUBLIC_PLAUSIBLE_SCRIPT',
-      'https://myplausible.app/js/script.js'
-    );
-    const beacon = vi.fn().mockReturnValue(true);
-    const plausible = vi.fn();
-    vi.stubGlobal('window', {
-      location: { origin: 'https://example.com' },
-      navigator: { sendBeacon: beacon },
-      plausible,
-    });
-    trackFlowchartEvent(EVENTS.checkoutHandoff, { source: 'paywall' });
-    expect(beacon).toHaveBeenCalledTimes(1);
-    expect(beacon.mock.calls[0][0]).toBe('https://myplausible.app/api/event');
-    expect(JSON.parse(await beacon.mock.calls[0][1].text())).toEqual({
-      name: EVENTS.checkoutHandoff,
-      domain: 'example.com',
-      url: 'https://example.com/pricing',
-      props: { source: 'paywall' },
-    });
-    expect(plausible).not.toHaveBeenCalled();
-  });
 });

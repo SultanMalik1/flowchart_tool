@@ -1,7 +1,7 @@
 /**
  * [INPUT] Confirmed server milestones and actual browser request headers.
  * [OUTPUT] Bounded Plausible receipt with safe properties and canonical URL.
- * [POS] Registration, accepted generation and confirmed payment delivery.
+ * [POS] Registration and accepted generation delivery.
  * [UPDATE] Keep production gates and visitor-context tests in sync.
  */
 import { isIP } from 'node:net';
@@ -15,8 +15,7 @@ import {
 
 type ServerEvent =
   | typeof EVENTS.registrationCompleted
-  | typeof EVENTS.processingStarted
-  | typeof EVENTS.paymentConfirmed;
+  | typeof EVENTS.processingStarted;
 
 export function visitorHeaders(
   headers: Headers
