@@ -36,12 +36,16 @@ For mindmap/tree, preserve parent-child meaning with explicit directed connectio
 For UML class diagrams, use diagramType:'uml', explicit coordinates and editable class/member groups; use straight native relationships and appropriate stated arrow styles (for example endArrow:'block',endFill:'0' for generalization, startArrow:'diamond' for aggregation). Avoid treating inheritance as a process flow. Broader native styles can be requested through graph.style; a known renderer shape does not by itself establish correct diagram semantics.`,
 };
 
+export const DRAWIO_SKILL_NAME = 'drawio-native';
+
+export const drawioSkillInstructions =
+  'Use the provided relevant references first. Read another bundled reference only when the request needs it, using skill_read with skillName:drawio-native and path:references/<name>.md. These guides describe our generate_flowchart graph/patch contract. CURRENT DOCUMENT is the only authority for current IDs, parents, geometry, styles and revision. Examples explain patterns; they are not user business rules. No MCP tools, routing:libavoid or postLayout parameters are available. After a successful canvas command, stop.';
+
 export const drawioSkill = createSkill({
-  name: 'drawio-native',
+  name: DRAWIO_SKILL_NAME,
   description:
     'Native draw.io shapes, groups, connectors, diagram families and complex local edits for FlowPilot.',
-  instructions:
-    'Use the provided relevant references first. Read another bundled reference only when the request needs it, using skill_read with skillName:drawio-native and path:references/<name>.md. These guides describe our generate_flowchart graph/patch contract. CURRENT DOCUMENT is the only authority for current IDs, parents, geometry, styles and revision. Examples explain patterns; they are not user business rules. No MCP tools, routing:libavoid or postLayout parameters are available. After a successful canvas command, stop.',
+  instructions: drawioSkillInstructions,
   references: drawioReferences,
   metadata: drawioKnowledgeSources,
 });

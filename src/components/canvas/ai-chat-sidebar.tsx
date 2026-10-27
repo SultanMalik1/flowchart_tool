@@ -1257,14 +1257,18 @@ const AiChatSidebar: React.FC<AiChatSidebarProps> = ({
         flowchartAi: currentMetadata,
       },
     };
-    const response = await fetch('/api/ai/chat/flowchart', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(requestBody),
-      signal: abortControllerRef.current?.signal,
-    });
+    const response = await fetch(
+      process.env.NEXT_PUBLIC_FLOWCHART_AGENT_URL ||
+        'http://127.0.0.1:8000/v1/chat/flowchart',
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(requestBody),
+        signal: abortControllerRef.current?.signal,
+      }
+    );
     diagnostic.requestId =
       response.headers.get('x-flowchart-request-id') || 'missing-request-id';
 

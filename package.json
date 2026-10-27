@@ -6,7 +6,10 @@
     "node": ">=22.13.0"
   },
   "scripts": {
-    "dev": "node scripts/fetch-drawio.mjs && next dev",
+    "dev": "concurrently -n web,agent -c blue,magenta \"node scripts/fetch-drawio.mjs && next dev\" \"node scripts/dev-agent.mjs\"",
+    "dev:web": "node scripts/fetch-drawio.mjs && next dev",
+    "dev:agent": "node scripts/dev-agent.mjs",
+    "test:agent": "node scripts/dev-agent.mjs --test",
     "build": "node scripts/fetch-drawio.mjs && next build",
     "start": "next start",
     "test": "vitest run",

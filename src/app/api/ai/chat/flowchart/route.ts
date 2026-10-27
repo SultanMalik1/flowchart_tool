@@ -1,35 +1,20 @@
 import { randomUUID } from 'node:crypto';
-import type { AiAssistantMode } from '@/lib/ai-modes';
-import { prepareDrawioCommand } from '@/lib/drawio/command';
-import { drawioDocumentSchema } from '@/lib/drawio/contracts';
-import { nativeModelSettings } from '@/lib/drawio/model-settings';
-import { readNativeCells } from '@/lib/drawio/native-document';
+import { commandHasVisibleShapes } from '@/lib/drawio/visible-command';
 import {
-  createDrawioAgent,
-  nativeAgentInstructions,
-} from '@/lib/mastra/drawio-agent';
+  type AgentRequestBody,
+  prepareNativeChat,
+} from '@/lib/mastra/chat-prepare';
+import { createDrawioAgent } from '@/lib/mastra/drawio-agent';
 import {
   classifyFlowchartError,
   getSafeErrorName,
   logFlowchartDiagnostic,
 } from '@/lib/mastra/flowchart-diagnostics';
-import {
-  createNativeModel,
-  getNativeModelForMode,
-} from '@/lib/mastra/native-model';
-import { buildMastraRequestMessages } from '@/lib/mastra/request-builder';
+import { createNativeModel } from '@/lib/mastra/native-model';
 import { createMastraStreamMapper } from '@/lib/mastra/stream-protocol';
 
 export const runtime = 'nodejs';
 export const maxDuration = 300;
-
-const TEXT_MODE: AiAssistantMode = 'text_to_flowchart';
-const IMAGE_MODE: AiAssistantMode = 'image_to_flowchart';
-
-interface AgentRequestBody {
-  messages: any[];
-  aiContext?: Record<string, any>;
-}
 
 function jsonResponse(
   body: Record<string, unknown>,
@@ -43,41 +28,6 @@ function jsonResponse(
       'X-Flowchart-Request-Id': requestId,
     },
   });
-}
-
-function countImagesInLatestUserMessage(messages: any[]): number {
-  const latestUser = [...messages]
-    .reverse()
-    .find((message) => message?.role === 'user');
-  if (!Array.isArray(latestUser?.content)) return 0;
-  return latestUser.content.filter(
-    (part: any) =>
-      part?.type === 'image_url' && typeof part.image_url?.url === 'string'
-  ).length;
-}
-
-function extractLatestUserPrompt(messages: any[]): string {
-  const latestUser = [...messages]
-    .reverse()
-    .find((message) => message?.role === 'user');
-  const content = latestUser?.content;
-  if (typeof content === 'string') return content.trim();
-  if (!Array.isArray(content)) return '';
-  return content
-    .filter((part: any) => part?.type === 'text')
-    .map((part: any) => String(part.text || ''))
-    .join('\n')
-    .trim();
-}
-
-function getRequestedMode(
-  messages: any[],
-  aiContext: Record<string, any> | undefined
-): AiAssistantMode {
-  if (aiContext?.mode !== IMAGE_MODE) return TEXT_MODE;
-  return countImagesInLatestUserMessage(messages) === 0
-    ? TEXT_MODE
-    : IMAGE_MODE;
 }
 
 function createAgentStreamResponse(
@@ -143,20 +93,9 @@ function createAgentStreamResponse(
               const commandEvent = resultEvents.find(
                 (e) => e.type === 'tool-call'
               );
-              const prepared =
-                commandEvent?.args.kind === 'drawio-command'
-                  ? prepareDrawioCommand(nativeDocument, commandEvent.args)
-                  : null;
               if (
-                prepared &&
-                commandEvent.args.operation !== 'patch' &&
-                !readNativeCells(prepared).some(
-                  (c) =>
-                    c.parent &&
-                    c.parent !== '0' &&
-                    Number(c.geometry.width) > 0 &&
-                    Number(c.geometry.height) > 0
-                )
+                commandEvent?.args.kind === 'drawio-command' &&
+                !commandHasVisibleShapes(nativeDocument, commandEvent.args)
               )
                 throw new Error(
                   'The diagram has no visible editable shapes. Please retry.'
@@ -246,122 +185,33 @@ export async function POST(request: Request): Promise<Response> {
     return jsonResponse({ error: 'Invalid JSON body' }, 400, requestId);
   }
 
-  if (!Array.isArray(body.messages)) {
-    logFlowchartDiagnostic({
-      requestId,
-      stage: 'request',
-      status: 'failed',
-      code: 'invalid_messages',
-      elapsedMs: Date.now() - startedAt,
-    });
-    return jsonResponse({ error: 'Invalid messages format' }, 400, requestId);
-  }
-
-  const imageCount = countImagesInLatestUserMessage(body.messages);
-  const requestedMode = getRequestedMode(body.messages, body.aiContext);
-  const targetStatus = body.aiContext?.targetResolution?.status;
-  logFlowchartDiagnostic({
-    requestId,
-    stage: 'request',
-    status: 'started',
-    code: 'request_received',
-    mode: requestedMode,
-    targetStatus:
-      targetStatus === 'none' ||
-      targetStatus === 'resolved' ||
-      targetStatus === 'ambiguous'
-        ? targetStatus
-        : undefined,
-    messageCount: body.messages.length,
-    imageCount,
-    elapsedMs: Date.now() - startedAt,
-  });
-  if (body.aiContext?.mode === IMAGE_MODE && imageCount > 1) {
-    logFlowchartDiagnostic({
-      requestId,
-      stage: 'request',
-      status: 'failed',
-      code: 'too_many_images',
-      mode: requestedMode,
-      imageCount,
-      elapsedMs: Date.now() - startedAt,
-    });
-    return jsonResponse(
-      { error: 'Only one image is supported for image_to_flowchart mode' },
-      400,
-      requestId
-    );
-  }
-
-  const latestUserPrompt = extractLatestUserPrompt(body.messages);
-
   try {
-    if (
-      body.aiContext?.editorKind !== 'drawio' ||
-      !body.aiContext.nativeDocument
-    ) {
-      return jsonResponse(
-        {
-          error: 'drawio_document_required',
-          message: 'The current draw.io document is required.',
-        },
-        400,
-        requestId
-      );
+    const prepared = prepareNativeChat(body, requestId, startedAt);
+    if (!prepared.ok) {
+      return jsonResponse(prepared.body, prepared.status, requestId);
     }
-    const nativeDocument = drawioDocumentSchema.parse(
-      body.aiContext.nativeDocument
-    );
-    const nativeSelection: string[] = Array.isArray(
-      body.aiContext?.nativeSelection
-    )
-      ? body.aiContext.nativeSelection.filter(
-          (id: unknown): id is string => typeof id === 'string'
-        )
-      : [];
     const agent = createDrawioAgent(
-      nativeDocument,
-      nativeSelection,
-      latestUserPrompt
+      prepared.nativeDocument,
+      prepared.nativeSelection,
+      prepared.latestUserPrompt
     );
-    const agentMessages = buildMastraRequestMessages({
-      mode: requestedMode,
-      messages: body.messages,
-      requestedMode: body.aiContext?.requestedMode,
-    });
-    const modelId = getNativeModelForMode(requestedMode);
-    if (!process.env.GOOGLE_GENERATIVE_AI_API_KEY) {
-      return jsonResponse(
-        {
-          error: 'missing_api_key',
-          message:
-            'GOOGLE_GENERATIVE_AI_API_KEY is not set. Add it to .env.local and restart the dev server.',
-        },
-        500,
-        requestId
-      );
-    }
-    const model = createNativeModel(requestedMode, { model: modelId });
+    const model = createNativeModel(prepared.mode, { model: prepared.modelId });
 
     logFlowchartDiagnostic({
       requestId,
       stage: 'agent',
       status: 'started',
       code: 'agent_invoked',
-      mode: requestedMode,
+      mode: prepared.mode,
       elapsedMs: Date.now() - startedAt,
     });
-    const output = await agent.stream(agentMessages as any, {
+    const output = await agent.stream(prepared.messages as any, {
       model: model as any,
-      instructions: nativeAgentInstructions(
-        nativeDocument,
-        nativeSelection,
-        latestUserPrompt
-      ),
+      instructions: prepared.instructions,
       maxSteps: 5,
       toolChoice: 'auto',
       abortSignal: request.signal,
-      modelSettings: nativeModelSettings(modelId),
+      modelSettings: prepared.modelSettings,
     });
 
     return createAgentStreamResponse(
@@ -370,7 +220,7 @@ export async function POST(request: Request): Promise<Response> {
       requestId,
       startedAt,
       true,
-      nativeDocument
+      prepared.nativeDocument
     );
   } catch (error) {
     logFlowchartDiagnostic({

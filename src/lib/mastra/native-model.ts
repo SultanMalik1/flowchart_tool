@@ -35,13 +35,19 @@ export function getNativeModelForMode(mode: AiAssistantMode): string {
  * Keep Gemini's thinking tokens out of the diagram budget. Flash 2.5 accepts
  * a zero thinking budget. Later Flash models accept "low".
  */
+export function geminiThinkingConfig(
+  model: string
+): { thinkingBudget: 0 } | { thinkingLevel: 'low' } {
+  return /gemini-2\.5/.test(model)
+    ? { thinkingBudget: 0 }
+    : { thinkingLevel: 'low' };
+}
+
 export function withGeminiDiagramBudget(
   model: string,
   baseFetch: typeof fetch = fetch
 ): typeof fetch {
-  const thinkingConfig = /gemini-2\.5/.test(model)
-    ? { thinkingBudget: 0 }
-    : { thinkingLevel: 'low' as const };
+  const thinkingConfig = geminiThinkingConfig(model);
   return (async (input, init) => {
     let nextInit = init;
     if (typeof init?.body === 'string') {
