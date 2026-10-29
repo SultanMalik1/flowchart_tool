@@ -1,14 +1,14 @@
 #!/usr/bin/env node
 // Adapted from DayuanJiang/next-ai-draw-io (99ced88e), Apache-2.0. See docs/licenses/next-ai-drawio-LICENSE.
 /**
- * Downloads the draw.io web app into public/drawio.
+ * Unpacks the vendored draw.io web app into public/drawio.
  *
- * The app embeds this copy from its own origin. Same origin lets the page
- * call the draw.io editor directly (highlight AI changes, read the selection,
- * undo AI edits, custom toolbar), which a cross-origin iframe does not allow.
+ * The archive lives at the localPath in drawio-version.json. Dev and build
+ * do not download it. The app embeds this copy from its own origin so the
+ * page can read the selection, undo an AI edit, and drive zoom and export.
  *
  * Runs before `dev` and `build`. It does nothing when the pinned version is
- * already present. An incompatible cached version fails the build.
+ * already unpacked. A checksum mismatch fails the build.
  *
  * The release asset (draw.war) is a zip file; it is unpacked with node:zlib
  * so no extra dependency is needed.
@@ -17,15 +17,17 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { readDrawioVersion, readZipEntries, sha256 } from './drawio-zip.mjs';
 
-// The pinned release and the SHA-256 of its draw.war, as GitHub lists it
+// The pinned release and the SHA-256 of its draw.war
 // (drawio-version.json in this repository)
+const pinned = readDrawioVersion();
 const {
   version: DRAWIO_VERSION,
   sha256: DRAWIO_SHA256,
-  downloadUrl: DOWNLOAD_URL,
-} = readDrawioVersion();
+  localPath: DRAWIO_WAR_PATH = 'vendor/drawio/draw.war',
+} = pinned;
 const DEST = path.join(process.cwd(), 'public', 'drawio');
 const STAMP = path.join(DEST, '.version');
+const VENDOR_WAR = path.join(process.cwd(), DRAWIO_WAR_PATH);
 
 function log(message) {
   console.log(`[fetch-drawio] ${message}`);
@@ -46,12 +48,13 @@ async function main() {
   )
     return;
 
-  log(`Downloading draw.io ${DRAWIO_VERSION} ...`);
+  log(`Installing draw.io ${DRAWIO_VERSION} from ${DRAWIO_WAR_PATH} ...`);
   let buf;
   try {
-    const res = await fetch(DOWNLOAD_URL);
-    if (!res.ok) throw new Error(`HTTP ${res.status} for ${DOWNLOAD_URL}`);
-    buf = Buffer.from(await res.arrayBuffer());
+    if (!fs.existsSync(VENDOR_WAR)) {
+      throw new Error(`pinned archive is missing at ${DRAWIO_WAR_PATH}`);
+    }
+    buf = fs.readFileSync(VENDOR_WAR);
     // The copy runs on the app's own origin: it must be the real release
     const actual = sha256(buf);
     if (actual !== DRAWIO_SHA256) {

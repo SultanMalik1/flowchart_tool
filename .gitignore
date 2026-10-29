@@ -70,7 +70,7 @@ next-env.d.ts
 .env.production
 
 .sh
-# Pinned editor assets are prepared by dev/build, never fetched at runtime.
+# Unpacked editor. The archive is vendor/drawio/draw.war.
 /public/drawio/
 
 # Python agent
